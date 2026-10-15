@@ -13,6 +13,6 @@ export CARGO_PROFILE_DEV_DEBUG=0
 output="${DSP_BUILD_DIR:-$CARGO_TARGET_DIR/web-dsp}"
 mkdir -p "$output"
 cargo run -p os-dsp --example stretch_probe --locked -- "$output/native.f32"
-cargo build -p os-dsp --example stretch_probe --target wasm32-unknown-unknown --locked
+RUSTFLAGS="-C opt-level=3 -C target-feature=+simd128" cargo build -p os-dsp --example stretch_probe --target wasm32-unknown-unknown --locked
 tools/web-bindgen.sh "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/examples/stretch_probe.wasm" "$output"
 printf 'DSP fixture: %s\n' "$output"
