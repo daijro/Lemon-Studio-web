@@ -5,28 +5,15 @@
 // and not any other part of Lemon Studio.
 
 pub mod audio;
+pub mod files;
+pub use files::{pick,Import};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn start() {
+pub async fn start() {
     console_error_panic_hook::set_once();
+    files::initialize().await;
     crate::run();
-}
-
-#[derive(Clone, Copy)]
-pub enum Import { Project, Sample(usize), Theme }
-thread_local! {
-    static IMPORTS: std::cell::RefCell<Vec<(Import, String, Vec<u8>)>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-pub fn pick(purpose: Import) {
-    wasm_bindgen_futures::spawn_local(async move {
-        let filter: &[&str] = match purpose { Import::Project => &["flp"], Import::Sample(_) => &["wav", "mp3", "flac", "ogg", "aif", "aiff"], Import::Theme => &["flstheme", "txt"] };
-        if let Some(file) = rfd::AsyncFileDialog::new().add_filter("Import", filter).pick_file().await {
-            let bytes = file.read().await;
-            IMPORTS.with_borrow_mut(|q| q.push((purpose, file.file_name(), bytes)));
-            crate::wake_ui();
-        }
-    });
 }
 
 #[cfg(feature = "web-test")]
@@ -42,7 +29,7 @@ pub fn record(app: &crate::App) {
     let rendered=app.transport.tap(&mut audio);
     let peak=audio.iter().copied().map(f32::abs).fold(0.0f32,f32::max);
     let notes: usize = app.state.project.patterns.iter().map(|p| p.notes.len()).sum();
-    SNAPSHOT.with_borrow_mut(|s| *s = serde_json::json!({"notes":notes,"loading":app.loading(),"audio":{"state":format!("{:?}",app.transport.state()),"tick":app.transport.tick(),"rendered":rendered,"peak":peak,"underruns":app.transport.underruns()},"parameters":parameters,"hits":hits,"screen":app.state.screen,"message":app.state.message,"channels":app.state.project.channels.len()}).to_string());
+    SNAPSHOT.with_borrow_mut(|s| *s = serde_json::json!({"notes":notes,"loading":app.loading(),"dirty":app.unsaved(),"audio":{"state":format!("{:?}",app.transport.state()),"tick":app.transport.tick(),"rendered":rendered,"peak":peak,"underruns":app.transport.underruns()},"parameters":parameters,"hits":hits,"screen":app.state.screen,"message":app.state.message,"channels":app.state.project.channels.len()}).to_string());
 }
 #[cfg(feature = "web-test")]
 #[wasm_bindgen]

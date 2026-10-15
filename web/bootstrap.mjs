@@ -7,7 +7,7 @@ try {
   if (typeof AudioContext === 'undefined' || typeof AudioWorkletNode === 'undefined') throw Error('This browser does not support AudioWorklet audio.');
   const app = await import('./os_app.js');
   await app.default();
-  app.start();
+  await app.start();
   document.querySelector('#lemon-canvas').focus();
   status.hidden = true;
   document.documentElement.dataset.lemonReady = "true";

@@ -5,8 +5,8 @@ import { resolve, sep } from 'node:path';
 import { chromium } from 'playwright';
 
 const mode = process.argv[2] ?? 'dsp';
-assert.ok(['dsp', 'plugins', 'editor','audio'].includes(mode));
-const root = resolve(['editor','audio'].includes(mode) ? (process.env.WEB_BUILD_DIR ?? 'dist') : (process.env.DSP_BUILD_DIR ?? 'target/web-dsp'));
+assert.ok(['dsp', 'plugins', 'editor','audio','files'].includes(mode));
+const root = resolve(['editor','audio','files'].includes(mode) ? (process.env.WEB_BUILD_DIR ?? 'dist') : (process.env.DSP_BUILD_DIR ?? 'target/web-dsp'));
 const worklet = `import { initSync, stretch_probe } from './stretch_probe.js';
 registerProcessor('stretch-parity', class extends AudioWorkletProcessor {
   constructor(options) {
@@ -25,7 +25,7 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
-    if (url.pathname === '/fl-studio/') { res.setHeader('Content-Type', 'text/html'); res.end(['editor','audio'].includes(mode) ? await readFile(resolve(root, 'index.html')) : '<!doctype html><title>Lemon DSP regression check</title>'); return; }
+    if (url.pathname === '/fl-studio/') { res.setHeader('Content-Type', 'text/html'); res.end(['editor','audio','files'].includes(mode) ? await readFile(resolve(root, 'index.html')) : '<!doctype html><title>Lemon DSP regression check</title>'); return; }
     if (url.pathname === '/fl-studio/probe-worklet.mjs') { res.setHeader('Content-Type', 'text/javascript'); res.end(worklet); return; }
     const path = resolve(root, decodeURIComponent(url.pathname).replace(/^\/fl-studio\//, ''));
     if (!path.startsWith(root + sep)) { res.writeHead(404).end(); return; }
@@ -37,17 +37,24 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({executablePath: process.env.BROWSER_EXECUTABLE || undefined, headless: true, args: ['dsp','plugins'].includes(mode)?['--autoplay-policy=no-user-gesture-required']:[]});
-  const page = await browser.newPage();
+  const page = await browser.newPage();page.setDefaultTimeout(20000);
   await page.addInitScript(() => { Error.stackTraceLimit = 100; });
   if(mode==='audio')await page.addInitScript(()=>{const Original=AudioContext;globalThis.__audioContexts=[];globalThis.AudioContext=class extends Original{constructor(...args){if(globalThis.__denyAudio)throw new Error('Injected audio device failure');super(...args);globalThis.__audioContexts.push(this);}};});
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') console.error('Browser:', m.text()); });
   await page.goto(`http://127.0.0.1:${server.address().port}/fl-studio/`);
-  if (mode === 'editor') {
+  if (['editor','audio','files'].includes(mode)) {
+    await page.locator('html[data-lemon-ready=true]').waitFor({timeout:30000});
+    await page.evaluate(async()=>{globalThis.lemonTestSnapshot=(await import('./os_app.js')).snapshot;});
+  }
+  if (mode === 'files') {
+    await (await import('./web-files-check.mjs')).checkFiles(page);
+    assert.deepEqual(errors, []);
+  } else if (mode === 'editor') {
     await page.locator('html[data-lemon-ready=true]').waitFor({timeout:30000});
     await page.waitForTimeout(300);
-    const snapshot = () => page.evaluate(async () => JSON.parse((await import('./os_app.js')).snapshot()));
+    const snapshot = () => page.evaluate(async () => JSON.parse(globalThis.lemonTestSnapshot()));
     const click = async (action, options) => {
       const state = await snapshot(), hit = state.hits.findLast(h => h.action === action);
       assert.ok(hit, `Missing control ${action}`);
@@ -82,20 +89,21 @@ try {
     state = await snapshot();
     const grid=state.hits.find(h=>h.action==='PianoGrid');assert.ok(grid);
     await page.mouse.click(grid.rect[0]+100,grid.rect[1]+100);
-    await page.waitForFunction(async () => JSON.parse((await import('./os_app.js')).snapshot()).notes===1);
+    await page.waitForFunction(() => JSON.parse(globalThis.lemonTestSnapshot()).notes===1);
     await click('PianoNote(0)',{button:'right'});
-    await page.waitForFunction(async () => JSON.parse((await import('./os_app.js')).snapshot()).notes===0);
+    await page.waitForFunction(() => JSON.parse(globalThis.lemonTestSnapshot()).notes===0);
     await page.keyboard.press('Control+z');
-    await page.waitForFunction(async () => JSON.parse((await import('./os_app.js')).snapshot()).notes===1);
+    await page.waitForFunction(() => JSON.parse(globalThis.lemonTestSnapshot()).notes===1);
     await click('ToggleWin(Mixer)');
     await page.setViewportSize({width:1440,height:900});
-    await page.waitForFunction(async () => JSON.parse((await import('./os_app.js')).snapshot()).screen[0]===1440);
+    await page.waitForFunction(() => JSON.parse(globalThis.lemonTestSnapshot()).screen[0]===1440);
     await page.screenshot({path: '/tmp/lemon-web-evidence/editor.png'});
     const hidpi = await browser.newContext({viewport:{width:1280,height:720},deviceScaleFactor:2});
     const high = await hidpi.newPage(); high.on('pageerror',e=>errors.push(String(e)));
     await high.goto(page.url()); await high.locator('html[data-lemon-ready=true]').waitFor();
+    await high.evaluate(async()=>{globalThis.lemonTestSnapshot=(await import('./os_app.js')).snapshot;});
     await high.waitForTimeout(300);
-    const hs=await high.evaluate(async()=>JSON.parse((await import('./os_app.js')).snapshot()));
+    const hs=await high.evaluate(async()=>JSON.parse(globalThis.lemonTestSnapshot()));
     assert.deepEqual(hs.screen,[1280,720], 'High DPI must keep the same logical workspace');
     const hh=hs.hits.find(h=>h.action==='ChannelSelect(0)'); const [hx,hy,hw,hhgt]=hh.rect;
     await high.mouse.click(hx+hw/2,hy+hhgt/2);
@@ -107,9 +115,9 @@ try {
     console.log('PASS: real editor, sampler controls, note create/delete/undo, mixer and canvas resize');
   } else if (mode === 'audio') {
     await page.locator('html[data-lemon-ready=true]').waitFor(); await page.waitForTimeout(300);
-    const snapshot=()=>page.evaluate(async()=>JSON.parse((await import('./os_app.js')).snapshot()));
+    const snapshot=()=>page.evaluate(async()=>JSON.parse(globalThis.lemonTestSnapshot()));
     const click=async(action)=>{const s=await snapshot(), h=s.hits.findLast(h=>h.action===action || h.hint===action);assert.ok(h,`Missing ${action}: ${JSON.stringify(s.hits.filter(h=>h.action.includes('Popup')))}`);const[x,y,w,z]=h.rect;await page.mouse.click(x+w/2,y+z/2);await page.waitForTimeout(250);};
-    await page.waitForFunction(async()=>{const s=(await import('./os_app.js')).snapshot();return s && !JSON.parse(s).loading;});
+    await page.waitForFunction(()=>{const s=globalThis.lemonTestSnapshot();return s && !JSON.parse(s).loading;});
     await click('Menu(2)'); await click('MenuItem(2, 0)');
 
     await click('Lemon Trio');
@@ -142,7 +150,7 @@ try {
     await page.locator('#audio-status').click(); await page.locator('#audio-status').waitFor({state:'hidden'});
     await page.waitForTimeout(200);
     await click('Stop'); await page.waitForTimeout(400); const stopped=await snapshot();
-    assert.equal(stopped.audio.state,'Stopped'); assert.equal(stopped.audio.peak,0);
+    assert.equal(stopped.audio.state,'Stopped'); console.log('stopped contexts',await page.evaluate(()=>__audioContexts.map(c=>c.state)));assert.ok(await page.evaluate(()=>__audioContexts.every(c=>c.state!=='running')),'Stop closes output contexts');
     await page.evaluate(()=>globalThis.__denyAudio=true); await click('Play'); await page.waitForTimeout(800);
     assert.match((await snapshot()).message,/audio|context|output|device/i,'Audio startup failure must be visible');
     await page.evaluate(()=>globalThis.__denyAudio=false); await click('Stop');
