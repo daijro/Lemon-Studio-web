@@ -418,7 +418,7 @@ other hosts to use them, or serve the original files. SIMD-capable WebAssembly i
 
 **Files:** File → Open loads an FLP. Open project folder imports one FLP and its relative
 sample folders together, keeping identical filenames in different folders distinct.
-Select at most 256 MiB per import. Save downloads an FLP and stores the project and imported
+Imports and the total imported sample library are limited to 256 MiB. Save downloads an FLP and stores the project and imported
 samples atomically in this browser. Reload restores the last successful Save. There is no
 autosave or version history. Browser storage belongs to this origin/profile and can be cleared
 by the browser; keep downloaded projects and original samples. FLP downloads reference sample
