@@ -1,0 +1,43 @@
+name: Web
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Native fixture dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libwayland-dev libclang-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+      - name: Install web tooling
+        run: tools/web-setup.sh
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox
+      - name: Build fixtures and app with test observations
+        run: |
+          tools/web-fixtures.sh
+          tools/web-build.sh --features web-test
+      - name: Chromium
+        run: node tools/web-check.mjs all
+      - name: Firefox
+        run: WEB_BROWSER=firefox node tools/web-check.mjs all
+      - name: Package production app
+        run: |
+          tools/web-build.sh
+          node tools/web-check.mjs package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lemon-studio-web
+          path: dist/lemon-studio-web.zip
