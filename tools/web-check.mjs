@@ -45,6 +45,9 @@ const server = createServer(async (req, res) => {
     const path = resolve(root, decodeURIComponent(url.pathname).replace(/^\/fl-studio\//, ''));
     if (!path.startsWith(root + sep)) { res.writeHead(404).end(); return; }
     res.setHeader('Content-Type', path.endsWith('.wasm') ? 'application/wasm' : (path.endsWith('.js') || path.endsWith('.mjs')) ? 'text/javascript' : 'application/octet-stream');
+    if(req.headers['accept-encoding']?.includes('gzip')) {
+      try {const body=await readFile(path+'.gz');res.setHeader('Content-Encoding','gzip');res.end(body);return;} catch {}
+    }
     res.end(await readFile(path));
   } catch { res.writeHead(404).end(); }
 });
@@ -54,10 +57,16 @@ try {
   const engine=process.env.WEB_BROWSER??'chromium';assert.ok({chromium,firefox,webkit}[engine]);
   browser = await ({chromium,firefox,webkit}[engine]).launch({executablePath:process.env.BROWSER_EXECUTABLE||undefined,headless:true,args:engine==='chromium'&&['dsp','plugins'].includes(mode)?['--autoplay-policy=no-user-gesture-required']:[],firefoxUserPrefs:{'media.autoplay.default':0,'layout.css.devPixelsPerPx':'2.0'}});
   const page = await browser.newPage();page.setDefaultTimeout(20000);
-  await page.addInitScript(() => { Error.stackTraceLimit = 100; });
+  await page.addInitScript(() => {
+    Error.stackTraceLimit = 100;
+    if(globalThis.scheduler){
+      const post=scheduler.postTask.bind(scheduler);
+      scheduler.postTask=(...args)=>post(...args).catch(error=>{if(error.name!=='AbortError')console.error('Scheduled task failed:',error.stack??String(error));throw error;});
+    }
+  });
   if(mode==='audio')await page.addInitScript(()=>{const Original=AudioContext;globalThis.__audioContexts=[];globalThis.AudioContext=class extends Original{constructor(...args){if(globalThis.__denyAudio)throw new Error('Injected audio device failure');super(...args);globalThis.__audioContexts.push(this);}};});
   const errors = [];
-  page.on('pageerror', e => errors.push(String(e)));
+  page.on('pageerror', e => {errors.push(String(e));console.error('Page error:',e.stack);});
   page.on('console', m => { if (m.type() === 'error') console.error('Browser:', m.text()); });
   await page.goto(`http://127.0.0.1:${server.address().port}/fl-studio/`);
   if (['editor','audio','files'].includes(mode)) {

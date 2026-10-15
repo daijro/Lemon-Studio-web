@@ -31,8 +31,11 @@ archive="$(dirname "$output")/lemon-studio-web.zip"
 python3 - "$output" "$archive" <<'PYZIP'
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
-import sys
+import sys, gzip
 root=Path(sys.argv[1])
+for file in sorted(root.rglob("*")):
+    if file.suffix in {".js", ".mjs", ".wasm", ".html", ".css"}:
+        file.with_name(file.name + ".gz").write_bytes(gzip.compress(file.read_bytes(), compresslevel=9, mtime=0))
 with ZipFile(sys.argv[2], 'w', ZIP_DEFLATED) as z:
     for file in sorted(root.rglob('*')):
         if file.is_file(): z.write(file,file.relative_to(root))

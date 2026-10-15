@@ -30,6 +30,7 @@ fn main() {
                 "--target=wasm32-unknown-unknown",
                 "-std=c++14",
                 "-O3",
+                "-msimd128",
                 "-ffunction-sections",
                 "-fdata-sections",
                 "-fno-exceptions",
