@@ -4,7 +4,7 @@
 
 Build the existing Lemon Studio interface as a standalone browser application in this fork, suitable for Playground to download as a web release ZIP. Preserve the upstream Rust implementation and desktop targets. The baseline is upstream commit `39a74ac1cf5d17f6ce3e949f071e070ffed66e39`.
 
-The proposed first release is a usable editor: channel rack, piano roll, playlist, mixer, built-in sampler, three-oscillator synth, parametric EQ, playback, project import/export, sample import and WAV export. This assumes working audio is preferred over an interface-only preview; the owner has been asked to choose. External native VST3, CLAP and FL Studio plugin binaries cannot run directly in the browser. Preserve their project state and report unavailable plugins; never silently discard or overwrite it.
+The approved first release is a usable editor: channel rack, piano roll, playlist, mixer, built-in sampler, three-oscillator synth, parametric EQ, playback, project import/export, sample import and WAV export. The owner approved continuing with this design. External native VST3, CLAP and FL Studio plugin binaries cannot run directly in the browser. Preserve their project state and report unavailable plugins; never silently discard or overwrite it.
 
 Keep upstream branding, attribution and license notices. This fork remains a separate application. Adding it to Playground and publishing releases are later deployment steps, not part of the initial local build.
 
@@ -13,6 +13,8 @@ Keep upstream branding, attribution and license notices. This fork remains a sep
 Use `wasm32-unknown-unknown`, the browser target supported by the existing winit 0.30 backend. Retain the existing softbuffer/tiny-skia rendering and portable font engine. An Emscripten application build would require changes to winit itself; rewriting the interface in JavaScript would duplicate the editors. Neither is the preferred route.
 
 Add browser implementations at the existing platform boundaries, selected by target configuration. Do not replace desktop behavior or spread silent no-op stubs through shared editing logic. New browser dependencies belong to the browser target.
+
+The owner explicitly requires the same main branch to compile for both desktop and web without losing existing desktop functionality. Preserve native audio and MIDI devices, native plugin formats and windows, file dialogs, imports and exports on Windows, Linux and macOS. Keep the desktop build commands and default dependency features working; a web-only nightly toolchain must not become the workspace default. Retain the desktop CI matrix alongside web CI and require its builds and plugin-host tests before claiming desktop compatibility.
 
 ### Window and input
 
