@@ -9,7 +9,7 @@
 // spec: ui/tempo-tapper.md
 
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use crate::time::Instant;
 
 /// After the first tap, a second one this long after it or later starts a new count (§2).
 pub const FIRST_GAP: f64 = 2.0;
@@ -345,11 +345,11 @@ mod tests {
         let t0 = Instant::now();
         ui.flash_at = Some(t0);
         ui.flash = 1.0;
-        assert!(ui.fade(t0 + std::time::Duration::from_millis(125)));
+        assert!(ui.fade(t0 + crate::time::Duration::from_millis(125)));
         assert!((ui.flash - 0.5).abs() < 0.01);
-        assert!(ui.fade(t0 + std::time::Duration::from_millis(260)));
+        assert!(ui.fade(t0 + crate::time::Duration::from_millis(260)));
         assert_eq!((ui.flash, ui.flash_at), (0.0, None));
-        assert!(!ui.fade(t0 + std::time::Duration::from_millis(300)));
+        assert!(!ui.fade(t0 + crate::time::Duration::from_millis(300)));
     }
 
     #[test]

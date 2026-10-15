@@ -11,7 +11,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_engine::{Engine, HostedEffect, Instrument, PlayMode, SampleLibrary, SharedEffect, SharedInstrument, TransportInfo};
 
@@ -108,12 +108,12 @@ fn audio_load() {
     let t0 = Instant::now();
     while app.loading() && t0.elapsed() < Duration::from_secs(120) {
         app.plugin_tick();
-        std::thread::sleep(Duration::from_millis(5));
+        crate::thread::sleep(Duration::from_millis(5));
     }
     // Mixer effects are hosted a few ticks after loading.
     for _ in 0..20 {
         app.plugin_tick();
-        std::thread::sleep(Duration::from_millis(5));
+        crate::thread::sleep(Duration::from_millis(5));
     }
     eprintln!("loaded in {:.1} s", t0.elapsed().as_secs_f64());
     let rate = crate::transport::Transport::device_rate().unwrap_or(48000);

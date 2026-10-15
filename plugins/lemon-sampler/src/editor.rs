@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use os_plugkit::time::{Duration, Instant};
 
 use nih_plug::prelude::*;
 use os_ui::kit::menu::{Mark, MenuItem, MenuStyle};
@@ -34,7 +34,7 @@ pub struct SamplerEditor {
     #[cfg_attr(not(windows), allow(dead_code))]
     hwnd: Arc<AtomicIsize>,
     /// Linux and macOS: the open editor's thread waker, for the same.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
     slot: os_plugkit::gui::Slot,
 }
 
@@ -45,7 +45,7 @@ impl SamplerEditor {
             shared,
             scale: AtomicU32::new(1f32.to_bits()),
             hwnd: Arc::new(AtomicIsize::new(0)),
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
             slot: Default::default(),
         }
     }
@@ -53,7 +53,7 @@ impl SamplerEditor {
     fn notify(&self) {
         #[cfg(windows)]
         win32::post_changed(self.hwnd.load(Ordering::Acquire));
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
         os_plugkit::gui::notify(&self.slot);
     }
 }
@@ -62,6 +62,8 @@ impl Editor for SamplerEditor {
     fn spawn(&self, parent: ParentWindowHandle, context: Arc<dyn GuiContext>) -> Box<dyn Any + Send> {
         let scale = f32::from_bits(self.scale.load(Ordering::Relaxed));
         match parent {
+            #[cfg(target_arch = "wasm32")]
+            ParentWindowHandle::WebCanvas(id) => Box::new(gui::open(id, scale, self.params.clone(), self.shared.clone(), context, &self.slot)),
             #[cfg(windows)]
             ParentWindowHandle::Win32Hwnd(hwnd) => {
                 Box::new(win32::open(hwnd, scale, self.params.clone(), self.shared.clone(), context, self.hwnd.clone()))
@@ -346,7 +348,7 @@ impl MenuDef {
     }
 
     /// The same menu as the shared editor kit's (its popups take that one).
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
     fn kit(&self) -> os_plugkit::MenuDef<Cmd> {
         os_plugkit::MenuDef {
             items: self.items.clone(),
@@ -1283,7 +1285,7 @@ pub fn wav_bytes(s: &os_engine::Sample, float: bool) -> Vec<u8> {
 pub fn paste_path() -> Option<PathBuf> {
     let d = os_paths::user_file("samples")?;
     std::fs::create_dir_all(&d).ok()?;
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let t = os_plugkit::time::SystemTime::now().duration_since(os_plugkit::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     Some(d.join(format!("Pasted audio {t}.wav")))
 }
 
@@ -1336,7 +1338,7 @@ mod win32 {
     use std::ffi::c_void;
     use std::sync::atomic::{AtomicIsize, Ordering};
     use std::sync::Arc;
-    use std::time::Instant;
+    use os_plugkit::time::Instant;
 
     use nih_plug::prelude::GuiContext;
     use os_theme::Palette;
@@ -2341,7 +2343,7 @@ mod win32 {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
 mod gui {
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
@@ -2748,6 +2750,10 @@ mod gui {
 
     /// The open / save sample dialog: the desktop's own (through its portal on Linux; on macOS AppKit's, run on the main
     /// thread).
+    #[cfg(target_arch = "wasm32")]
+    fn file_dialog(win: &Window, save: bool) -> Option<String> { win.file_dialog(save) }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn file_dialog(win: &Window, save: bool) -> Option<String> {
         if os_plugkit::no_modal() {
             return None;
