@@ -2495,7 +2495,9 @@ dependencies = [
 name = "os-dsp"
 version = "0.0.1"
 dependencies = [
+ "js-sys",
  "signalsmith-stretch",
+ "wasm-bindgen",
 ]
 
 [[package]]
