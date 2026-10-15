@@ -15,6 +15,11 @@
 //!
 //! `OPENSTUDIO_USER_DIR` overrides the folder on every platform. Targets without a file system (the web) have none.
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::fs;
+#[cfg(target_arch = "wasm32")]
+pub mod fs;
+
 use std::path::PathBuf;
 
 /// The folder's own name inside the platform's per-user settings folder.

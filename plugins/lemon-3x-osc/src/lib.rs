@@ -235,6 +235,7 @@ impl ClapPlugin for LemonTrio {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument, ClapFeature::Synthesizer, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonTrio {
     const VST3_CLASS_ID: [u8; 16] = *b"OpenStudio3xOsc!";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];
@@ -245,6 +246,7 @@ impl Vst3Plugin for LemonTrio {
 #[cfg(not(feature = "linked"))]
 nih_export_clap!(LemonTrio);
 #[cfg(not(feature = "linked"))]
+#[cfg(not(target_arch = "wasm32"))]
 nih_export_vst3!(LemonTrio);
 os_plugkit::linked_clap_entry!(LemonTrio);
 
