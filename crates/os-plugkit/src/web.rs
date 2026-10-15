@@ -21,10 +21,11 @@ extern "C" {
     fn menu(id: u32, items: &str);
     fn type_in(id: u32, text: &str);
     fn pages(id: u32, count: u32);
+    #[wasm_bindgen(catch)] fn download_sample(bytes: &[u8]) -> Result<(), JsValue>;
 }
 
 struct Frame { pixels: Vec<u32>, w: u32, h: u32 }
-enum Request { Menu(String, Reply), Type(String, Reply), File(bool, Reply) }
+enum Request { Menu(String, Reply), Type(String, Reply), File(bool, Reply), Download(Vec<u8>, mpsc::Sender<Result<(),String>>) }
 #[derive(Default)]
 struct State {
     events: crossbeam::queue::SegQueue<Input>,
@@ -76,13 +77,16 @@ fn event(id: u32, kind: String, x: f64, y: f64, value: f64, mods: f64) {
             match request {
                 Request::Menu(items, tx) => { *s.reply.lock().unwrap() = Some(tx); menu(id, &items); }
                 Request::Type(text, tx) => { *s.reply.lock().unwrap() = Some(tx); type_in(id, &text); }
+                Request::Download(bytes, tx) => { let _ = tx.send(download_sample(&bytes).map_err(|e|format!("{e:?}"))); }
                 Request::File(save, tx) => {
                     if save { let _ = tx.send(Some("/exports/sample.wav".into())); }
                     else { wasm_bindgen_futures::spawn_local(async move {
                         let result = if let Some(f) = rfd::AsyncFileDialog::new().add_filter("Audio", &["wav","flac","ogg","mp3","aiff"]).pick_file().await {
-                            let path = format!("/imports/{}", f.file_name());
-                            os_paths::fs::insert(path.clone().into(), f.read().await);
-                            Some(path)
+                            let bytes=f.read().await;
+                            if let Some(name)=os_paths::fs::relative_path(&f.file_name()).ok().filter(|_|bytes.len()<=256*1024*1024) {
+                                let path=format!("/imports/plugin-{:.0}-{id}/{}",js_sys::Date::now(),name.display());
+                                os_paths::fs::insert(path.clone().into(),bytes);Some(path)
+                            } else { None }
                         } else { None };
                         let _ = tx.send(result);
                     }); }
@@ -150,6 +154,9 @@ impl Window {
     }
     pub fn type_in(&mut self,_x:i32,_y:i32,text:&str,_scale:f32)->Option<String> {
         self.unlock(); let(tx,rx)=mpsc::channel(); self.state.requests.push(Request::Type(text.into(),tx)); rx.recv().ok().flatten()
+    }
+    pub fn save_sample(&self,bytes:Vec<u8>)->Result<(),String> {
+        let(tx,rx)=mpsc::channel();self.state.requests.push(Request::Download(bytes,tx));rx.recv().map_err(|e|e.to_string())?
     }
     pub fn file_dialog(&self,save:bool)->Option<String> {
         let(tx,rx)=mpsc::channel(); self.state.requests.push(Request::File(save,tx)); rx.recv().ok().flatten()

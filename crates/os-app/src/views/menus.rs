@@ -157,6 +157,8 @@ const FILE: &[Item] = &[
     it("Revert to last backup", "").on(),
     SEP,
     it("Exit", "").on(),
+    #[cfg(target_arch = "wasm32")]
+    it("Open project folder...", "").on(),
 ];
 
 /// The project's undo history (spec: ui/settings-choices.md "Undo history: the four checks (2026-10-16)"): the first

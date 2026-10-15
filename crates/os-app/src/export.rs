@@ -249,8 +249,8 @@ pub struct Job {
 }
 
 impl Job {
-    /// A 32-bit float WAV of the mix at `path` and nothing else (tests).
-    #[cfg(test)]
+    /// A 32-bit float WAV of the mix at `path` and nothing else (tests, and the browser's WAV download).
+    #[cfg(any(test, target_arch = "wasm32"))]
     pub fn wav(path: &Path) -> Job {
         let options = Options { markers: false, loops: false, ..Options::default() };
         Job {
@@ -485,6 +485,14 @@ fn encode(o: &Options, f: usize, path: &Path, audio: &[f32], rate: u32, meta: &M
         }
         _ => ogg_bytes(audio, ch, rate, o.ogg_kbps).map_err(err)?,
     };
+    // Browser: the file is downloaded under its name (downloads start on the page's thread).
+    #[cfg(target_arch = "wasm32")]
+    {
+        let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let mime = ["audio/wav", "audio/flac", "audio/mpeg", "audio/ogg"][f];
+        crate::web::audio::dispatch(move || crate::web::files::download_bytes(&name, &bytes, mime)).map_err(err)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     std::fs::write(path, bytes).map_err(|e| err(e.to_string()))
 }
 

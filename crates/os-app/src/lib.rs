@@ -569,7 +569,7 @@ impl Shell {
     /// watchdog wake while a modal loop holds up winit's (`held`, see `stall`).
     fn step(&mut self, el: &ActiveEventLoop, held: bool) {
         #[cfg(target_arch = "wasm32")]
-        web::audio::poll();
+        { web::audio::poll(); web::files::poll(&mut self.app); }
         // Animate while playing; otherwise repaint a few times a second (peaks, clock).
         let ms = if self.app.animating() { 16 } else { 100 };
         let now = Instant::now();
