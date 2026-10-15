@@ -1,12 +1,28 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, firefox, webkit } from 'playwright';
 
 const mode = process.argv[2] ?? 'dsp';
-assert.ok(['dsp', 'plugins', 'editor','audio','files'].includes(mode));
-const root = resolve(['editor','audio','files'].includes(mode) ? (process.env.WEB_BUILD_DIR ?? 'dist') : (process.env.DSP_BUILD_DIR ?? 'target/web-dsp'));
+if (mode==='all') {
+  const built=resolve(process.env.WEB_BUILD_DIR??'dist/web'),archive=resolve(built,'../lemon-studio-web.zip');
+  execFileSync('python3',['tools/web-package-check.py',built,archive],{stdio:'inherit'});
+  const extracted=await mkdtemp(resolve(tmpdir(),'lemon-web-check-'));
+  try {
+    execFileSync('python3',['-m','zipfile','-e',archive,extracted]);
+    for(const check of ['dsp','plugins','editor','audio','files','package']) {
+      const result=spawnSync(process.execPath,['tools/web-check.mjs',check],{stdio:'inherit',env:{...process.env,WEB_BUILD_DIR:extracted},timeout:180000});
+      assert.equal(result.status,0,`${check} failed: ${result.error??''}`);
+    }
+  } finally {await rm(extracted,{recursive:true,force:true});}
+  process.exit(0);
+}
+assert.ok(['dsp','plugins','editor','audio','files','package'].includes(mode));
+await mkdir(process.env.WEB_EVIDENCE_DIR??'/tmp/lemon-web-evidence',{recursive:true});
+const root = resolve(['editor','audio','files','package'].includes(mode) ? (process.env.WEB_BUILD_DIR ?? 'dist/web') : (process.env.DSP_BUILD_DIR ?? 'target/web-dsp'));
 const worklet = `import { initSync, stretch_probe } from './stretch_probe.js';
 registerProcessor('stretch-parity', class extends AudioWorkletProcessor {
   constructor(options) {
@@ -20,12 +36,11 @@ registerProcessor('stretch-parity', class extends AudioWorkletProcessor {
   process(_inputs, outputs) { for (const c of outputs[0]) c.fill(0); return true; }
 });`;
 const server = createServer(async (req, res) => {
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  if(!req.url.includes('no-isolation')){res.setHeader('Cross-Origin-Opener-Policy','same-origin');res.setHeader('Cross-Origin-Embedder-Policy','require-corp');}
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
-    if (url.pathname === '/fl-studio/') { res.setHeader('Content-Type', 'text/html'); res.end(['editor','audio','files'].includes(mode) ? await readFile(resolve(root, 'index.html')) : '<!doctype html><title>Lemon DSP regression check</title>'); return; }
+    if (url.pathname === '/fl-studio/') { res.setHeader('Content-Type', 'text/html'); res.end(['editor','audio','files','package'].includes(mode) ? await readFile(resolve(root, 'index.html')) : '<!doctype html><title>Lemon DSP regression check</title>'); return; }
     if (url.pathname === '/fl-studio/probe-worklet.mjs') { res.setHeader('Content-Type', 'text/javascript'); res.end(worklet); return; }
     const path = resolve(root, decodeURIComponent(url.pathname).replace(/^\/fl-studio\//, ''));
     if (!path.startsWith(root + sep)) { res.writeHead(404).end(); return; }
@@ -36,7 +51,8 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
-  browser = await chromium.launch({executablePath: process.env.BROWSER_EXECUTABLE || undefined, headless: true, args: ['dsp','plugins'].includes(mode)?['--autoplay-policy=no-user-gesture-required']:[]});
+  const engine=process.env.WEB_BROWSER??'chromium';assert.ok({chromium,firefox,webkit}[engine]);
+  browser = await ({chromium,firefox,webkit}[engine]).launch({executablePath:process.env.BROWSER_EXECUTABLE||undefined,headless:true,args:engine==='chromium'&&['dsp','plugins'].includes(mode)?['--autoplay-policy=no-user-gesture-required']:[],firefoxUserPrefs:{'media.autoplay.default':0,'layout.css.devPixelsPerPx':'2.0'}});
   const page = await browser.newPage();page.setDefaultTimeout(20000);
   await page.addInitScript(() => { Error.stackTraceLimit = 100; });
   if(mode==='audio')await page.addInitScript(()=>{const Original=AudioContext;globalThis.__audioContexts=[];globalThis.AudioContext=class extends Original{constructor(...args){if(globalThis.__denyAudio)throw new Error('Injected audio device failure');super(...args);globalThis.__audioContexts.push(this);}};});
@@ -48,7 +64,15 @@ try {
     await page.locator('html[data-lemon-ready=true]').waitFor({timeout:30000});
     await page.evaluate(async()=>{globalThis.lemonTestSnapshot=(await import('./os_app.js')).snapshot;});
   }
-  if (mode === 'files') {
+  if (mode==='package') {
+    await page.locator('html[data-lemon-ready=true]').waitFor({timeout:30000});
+    assert.deepEqual(errors,[]);
+    await page.route('**/os_app_bg.wasm',route=>route.fulfill({status:404,body:'missing'}));
+    await page.reload();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('could not start'));
+    await page.unroute('**/os_app_bg.wasm');await page.goto(page.url()+'?no-isolation');
+    await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('requires Cross-Origin'));
+    console.log('PASS: nested-path startup and visible missing-module/isolation errors');
+  } else if (mode === 'files') {
     await (await import('./web-files-check.mjs')).checkFiles(page);
     assert.deepEqual(errors, []);
   } else if (mode === 'editor') {
@@ -99,7 +123,7 @@ try {
     await page.waitForFunction(() => JSON.parse(globalThis.lemonTestSnapshot()).screen[0]===1440);
     await page.screenshot({path: '/tmp/lemon-web-evidence/editor.png'});
     const hidpi = await browser.newContext({viewport:{width:1280,height:720},deviceScaleFactor:2});
-    const high = await hidpi.newPage(); high.on('pageerror',e=>errors.push(String(e)));
+    const high = await hidpi.newPage();high.setDefaultTimeout(20000); high.on('pageerror',e=>errors.push(String(e)));
     await high.goto(page.url()); await high.locator('html[data-lemon-ready=true]').waitFor();
     await high.evaluate(async()=>{globalThis.lemonTestSnapshot=(await import('./os_app.js')).snapshot;});
     await high.waitForTimeout(300);
@@ -108,7 +132,8 @@ try {
     const hh=hs.hits.find(h=>h.action==='ChannelSelect(0)'); const [hx,hy,hw,hhgt]=hh.rect;
     await high.mouse.click(hx+hw/2,hy+hhgt/2);
     await high.locator('.plugin-window canvas').waitFor(); await high.waitForTimeout(300);
-    const dimensions=await high.locator('.plugin-window canvas').evaluate(c=>({pixels:c.width,css:c.getBoundingClientRect().width}));
+    const dimensions=await high.locator('.plugin-window canvas').evaluate(c=>({pixels:c.width,css:c.getBoundingClientRect().width,dpr:devicePixelRatio,style:c.getAttribute('style'),main:document.querySelector('#lemon-canvas').width}));
+    assert.equal(dimensions.dpr,2,'High-DPI browser context must actually use 2x scale');
     assert.equal(dimensions.pixels,dimensions.css*2,'Plugin canvas must match display density');
     await high.screenshot({path:'/tmp/lemon-web-evidence/editor-hidpi.png'}); await hidpi.close();
     assert.deepEqual(errors, []);
