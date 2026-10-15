@@ -277,6 +277,12 @@ impl App {
             return self.tell(Kind::Warning, TITLE, spans(&[&text]));
         }
         let song = if song { song_ok } else { !pat_ok };
+        // Browser: a WAV of the mix is downloaded under the project's name (no form, no folder).
+        #[cfg(target_arch = "wasm32")]
+        {
+            let stem = s.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "Untitled".to_string(), |n| n.to_string_lossy().into_owned());
+            return self.start_export(crate::export::Job::wav(std::path::Path::new(&format!("{stem}.wav"))), song);
+        }
         let mut o = Options::load();
         if mp3 {
             o.formats = [false, false, true, false];

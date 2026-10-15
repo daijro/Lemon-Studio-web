@@ -622,7 +622,7 @@ impl Logic {
             Target::SubTab(i) => self.view.sub = i,
             Target::FxPage(i) => self.view.fx_page = i,
             Target::FileOpen | Target::FileName => return vec![Act::OpenDialog],
-            Target::FileBrowse => return vec![Act::Locate],
+            Target::FileBrowse => return if cfg!(target_arch = "wasm32") { Vec::new() } else { vec![Act::Locate] },
             Target::FileClear => return vec![Act::Clear, Act::Repaint],
             Target::Key(k) => {
                 let vel = self.key_velocity(y);
@@ -1017,7 +1017,7 @@ impl Logic {
                 let has_path = !self.params.sample_path.read().map(|p| p.is_empty()).unwrap_or(true);
                 m.add(MenuItem::item("Reload").enabled(has_path), Cmd::Reload);
                 m.add(MenuItem::item("Save as...").enabled(has), Cmd::SaveAs);
-                m.add(MenuItem::item("Locate file").enabled(has_path), Cmd::Locate);
+                m.add(MenuItem::item("Locate file").enabled(has_path && !cfg!(target_arch = "wasm32")), Cmd::Locate);
                 // Audio on the clipboard: Windows and macOS so far.
                 let clip = cfg!(any(windows, target_os = "macos"));
                 m.add(MenuItem::item("Copy audio to clipboard").shortcut("Ctrl+C").enabled(has && clip), Cmd::CopyAudio);
@@ -2756,8 +2756,12 @@ mod gui {
                         let s = self.shared.whole();
                         if let (Some(s), Some(path)) = (s, file_dialog(&self.win, true)) {
                             let path = if path.to_ascii_lowercase().ends_with(".wav") { path } else { format!("{path}.wav") };
-                            self.logic.hint = match std::fs::write(&path, super::wav_bytes(&s, true)) {
-                                Ok(()) => format!("Saved {path}"),
+                            #[cfg(target_arch = "wasm32")]
+                            let result=self.win.save_sample(super::wav_bytes(&s,true));
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let result=std::fs::write(&path, super::wav_bytes(&s, true)).map_err(|e|e.to_string());
+                            self.logic.hint = match result {
+                                Ok(()) => if cfg!(target_arch = "wasm32") { "Sample download started".into() } else { format!("Saved {path}") },
                                 Err(e) => format!("Could not save: {e}"),
                             };
                         }
