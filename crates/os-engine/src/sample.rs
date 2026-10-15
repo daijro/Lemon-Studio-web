@@ -91,7 +91,12 @@ pub fn load_shared(path: &Path) -> Result<Arc<Sample>, SampleError> {
 
 /// Decodes a WAV (PCM or Vorbis-in-WAV) / FLAC / Ogg Vorbis / WavPack / MP3 / AIFF file.
 pub fn load(path: &Path) -> Result<Sample, SampleError> {
-    let bytes = std::fs::read(path).map_err(|source| SampleError::Io { path: path.to_owned(), source })?;
+    let bytes = os_paths::fs::read(path).map_err(|source| SampleError::Io { path: path.to_owned(), source })?;
+    load_bytes(path, bytes)
+}
+
+/// Decodes imported bytes with the same format detection as a native file.
+pub fn load_bytes(path: &Path, bytes: Vec<u8>) -> Result<Sample, SampleError> {
     let decode_err = |message: String| SampleError::Decode { path: path.to_owned(), message };
     if let Some(vw) = vorbis_in_wav(&bytes) {
         let mut s = decode(vw.ogg.to_vec(), Some("ogg")).map_err(decode_err)?;
