@@ -338,6 +338,7 @@ pub fn wake() {
 ///
 /// # Safety
 /// Loading runs the module's initialisers (see `libloading::Library::new`).
+#[cfg(not(target_arch = "wasm32"))]
 pub unsafe fn load_module(path: &Path) -> Result<libloading::Library, String> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let lib = {

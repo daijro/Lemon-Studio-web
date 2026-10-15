@@ -123,7 +123,11 @@ pub fn source_bits(path: &Path) -> u32 {
 /// reading its audio. **(Lemon Studio)** Loops are read from WAV files only (not yet from a WavPack file's wrapper).
 pub fn source_info(path: &Path) -> (u32, fx::Source) {
     let mut src = fx::Source::default();
-    let Ok(mut f) = std::fs::File::open(path) else {
+    #[cfg(not(target_arch = "wasm32"))]
+    let file = std::fs::File::open(path);
+    #[cfg(target_arch = "wasm32")]
+    let file = os_paths::fs::read(path).map(std::io::Cursor::new);
+    let Ok(mut f) = file else {
         return (16, src);
     };
     let mut head = Vec::new();
@@ -430,7 +434,10 @@ impl Shared {
             return;
         }
         let (s, p) = (self.clone(), params.clone());
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || s.precompute(&p));
+        #[cfg(target_arch = "wasm32")]
+        wasm_thread::spawn(move || s.precompute(&p));
     }
 
     /// True when the processed sample is out of date for the current settings.
@@ -747,6 +754,7 @@ impl ClapPlugin for LemonSampler {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument, ClapFeature::Sampler, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonSampler {
     const VST3_CLASS_ID: [u8; 16] = *b"OpenStudioSamplr";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Sampler];
@@ -757,6 +765,7 @@ impl Vst3Plugin for LemonSampler {
 #[cfg(not(feature = "linked"))]
 nih_export_clap!(LemonSampler);
 #[cfg(not(feature = "linked"))]
+#[cfg(not(target_arch = "wasm32"))]
 nih_export_vst3!(LemonSampler);
 os_plugkit::linked_clap_entry!(LemonSampler);
 
