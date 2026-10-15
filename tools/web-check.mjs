@@ -67,7 +67,7 @@ try {
   if(mode==='audio')await page.addInitScript(()=>{const Original=AudioContext;globalThis.__audioContexts=[];globalThis.AudioContext=class extends Original{constructor(...args){if(globalThis.__denyAudio)throw new Error('Injected audio device failure');super(...args);globalThis.__audioContexts.push(this);}};});
   const errors = [];
   page.on('pageerror', e => {errors.push(String(e));console.error('Page error:',e.stack);});
-  page.on('console', m => { if (m.type() === 'error') console.error('Browser:', m.text()); });
+  page.on('console', m => { if (m.type() === 'error') {console.error('Browser:', m.text());if(m.text().startsWith('Scheduled task failed:'))errors.push(m.text());} });
   await page.goto(`http://127.0.0.1:${server.address().port}/fl-studio/`);
   if (['editor','audio','files'].includes(mode)) {
     await page.locator('html[data-lemon-ready=true]').waitFor({timeout:30000});
@@ -118,7 +118,8 @@ try {
     await page.screenshot({path:'/tmp/lemon-web-evidence/sampler-editor.png'});
     await page.getByRole('button',{name:'Close instrument editor'}).click();
     await page.locator('.plugin-window').waitFor({state:'detached'});
-    await click('ToggleWin(PianoRoll)');
+    await page.keyboard.press('F7');
+    await page.waitForFunction(()=>JSON.parse(globalThis.lemonTestSnapshot()).hits.some(h=>h.action==='PianoGrid'));
     state = await snapshot();
     const grid=state.hits.find(h=>h.action==='PianoGrid');assert.ok(grid);
     await page.mouse.click(grid.rect[0]+100,grid.rect[1]+100);

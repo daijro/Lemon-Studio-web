@@ -10,6 +10,8 @@ export async function restore(){
   const db=await database();try{return await new Promise((resolve,reject)=>{const r=db.transaction('workspace').objectStore('workspace').get('current');r.onsuccess=()=>resolve(r.result??null);r.onerror=()=>reject(r.error);});}finally{db.close();}
 }
 export async function persist(snapshot){
+  const limit=256*1024*1024;
+  if(snapshot.project.byteLength>limit||snapshot.files.reduce((n,f)=>n+f.bytes.byteLength,0)>limit)throw new Error('Snapshot exceeds the 256 MiB browser reload limit.');
   const db=await database();try{await new Promise((resolve,reject)=>{
     const tx=db.transaction('workspace','readwrite');
     tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error??new Error('Browser save aborted'));
@@ -29,16 +31,18 @@ export function download(name,bytes,mime){
   try{document.body.append(link);link.click();}finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 }
 export function pick_files(kind){return new Promise((resolve,reject)=>{
+  const previous=document.activeElement;
+  const finish=()=>{input.remove();previous?.focus();};
   const input=document.createElement('input');input.type='file';input.hidden=true;
   input.accept=kind==='project'?'.flp':kind==='theme'?'.flstheme,.txt':'.wav,.flac,.ogg,.mp3,.aif,.aiff';
   if(kind==='folder'){input.webkitdirectory=true;input.multiple=true;input.accept='';}
-  input.oncancel=()=>{input.remove();resolve(null);};
+  input.oncancel=()=>{finish();resolve(null);};
   input.onchange=async()=>{try{
     const selected=[...input.files];
     // The shared WASM memory is capped at 2 GiB; leave room for decoded audio and the editor.
     if(selected.reduce((n,f)=>n+f.size,0)>256*1024*1024)throw new Error('Import is larger than the 256 MiB browser limit.');
     resolve(await Promise.all(selected.map(async file=>({path:file.webkitRelativePath||file.name,bytes:new Uint8Array(await file.arrayBuffer())}))));
-  }catch(error){reject(error);}finally{input.remove();}};
+  }catch(error){reject(error);}finally{finish();}};
   document.body.append(input);input.click();
 });}
 export function dirty(value){globalThis.lemonUnsaved=value;}

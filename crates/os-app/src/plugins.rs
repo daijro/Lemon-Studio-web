@@ -840,11 +840,15 @@ impl Plugins {
 
     /// What the instance under `key` (rack row or `fx_key`) is: format, id, name, file (for project files).
     pub fn descriptor(&self, key: usize) -> Option<Descriptor> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some((desc,_))=crate::web::files::saved_plugin(key) { return Some(desc); }
         Some(self.hosted.get(&key)?.plugin.lock().ok()?.desc().clone())
     }
 
     /// The saved state of the instance under `key`, in its format's own bytes.
     pub fn state(&self, key: usize) -> Option<Vec<u8>> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some((_,state))=crate::web::files::saved_plugin(key) { return state; }
         self.hosted.get(&key)?.lock_for_state()?.save_state()
     }
 
@@ -916,6 +920,10 @@ impl Plugins {
     /// The project-file state of the Lemon Parametric EQ in mixer slot `key` (its plugin state converted back),
     /// `None` when the slot hosts something else.
     pub fn eq_file_state(&self, key: usize) -> Option<Vec<u8>> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some((desc,state))=crate::web::files::saved_plugin(key) {
+            return if desc.name == LEMON_EQ { lemon_parametric_eq_2::params::fl_from_plugin_state(&state?) } else { None };
+        }
         let h = self.hosted.get(&key)?;
         let p = h.lock_for_state()?;
         if p.desc().name != LEMON_EQ {
@@ -1056,6 +1064,8 @@ impl Plugins {
 
     /// The sample file a Lemon Sampler instance holds (its persisted `sample-path`), `Some("")` when it has none.
     pub fn sampler_path(&self, row: usize) -> Option<String> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some((_,state))=crate::web::files::saved_plugin(row) { return sample_path_of(&state?); }
         let h = self.hosted.get(&row)?;
         let blob = h.lock_for_state()?.save_state()?;
         sample_path_of(&blob)
@@ -1064,6 +1074,13 @@ impl Plugins {
     /// The instances for the transport.
     /// Switches every hosted instance to offline rendering (an export) or back to live playback: plugins that know
     /// the difference use their best quality offline (Lemon Sampler: the resampler's exact weights).
+    #[cfg(target_arch = "wasm32")]
+    pub fn try_set_offline(&self, offline: bool) -> bool {
+        let Ok(mut plugins)=self.hosted.values().map(|h|h.plugin.try_lock()).collect::<Result<Vec<_>,_>>() else { return false };
+        for p in &mut plugins { p.set_offline(offline); }
+        true
+    }
+
     pub fn set_offline(&mut self, offline: bool) {
         // Lemon MIDI Out sends nothing while a render or export runs.
         crate::lemon_midi_out::set_offline(offline);

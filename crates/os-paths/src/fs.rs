@@ -17,7 +17,8 @@ use std::{
 static FILES: LazyLock<Mutex<HashMap<PathBuf, (u64, Arc<Vec<u8>>)>>> =
     LazyLock::new(Default::default);
 static REVISION: AtomicU64 = AtomicU64::new(0);
-static ROOT: LazyLock<Mutex<PathBuf>> = LazyLock::new(Default::default);
+pub const MAX_IMPORT_BYTES: usize = 256 * 1024 * 1024;
+static ROOT: LazyLock<Mutex<PathBuf>> = LazyLock::new(|| Mutex::new("/imports/current".into()));
 fn missing(path: &Path) -> io::Error {
     io::Error::new(
         io::ErrorKind::NotFound,
@@ -31,6 +32,22 @@ pub fn insert(path: PathBuf, bytes: Vec<u8>) {
         .unwrap()
         .insert(path, (revision, Arc::new(bytes)));
 }
+/// Keep the saved reference relative while isolating each open project's imported bytes.
+pub fn import(name: &str, bytes: Vec<u8>) -> io::Result<PathBuf> {
+    let relative = relative_path(name)?;
+    let path = root().join(&relative);
+    let mut files = FILES.lock().unwrap();
+    if let Some((_, old)) = files.get(&path) {
+        if **old == bytes { return Ok(relative); }
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "A different sample already uses this path; choose a distinct filename or folder"));
+    }
+    if files.values().map(|(_, b)| b.len()).sum::<usize>() + bytes.len() > MAX_IMPORT_BYTES {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Imported samples exceed the 256 MiB browser limit"));
+    }
+    files.insert(path, (REVISION.fetch_add(1, Ordering::Relaxed) + 1, Arc::new(bytes)));
+    Ok(relative)
+}
+pub fn root() -> PathBuf { ROOT.lock().unwrap().clone() }
 pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     let bytes = FILES
         .lock()
@@ -54,10 +71,11 @@ pub fn remove(path: &Path) {
 }
 pub fn clear() {
     FILES.lock().unwrap().clear();
-    REVISION.fetch_add(1, Ordering::Relaxed);
+    let revision = REVISION.fetch_add(1, Ordering::Relaxed) + 1;
+    set_root(format!("/imports/{revision}").into());
 }
 pub fn set_root(root: PathBuf) {
-    *ROOT.lock().unwrap() = root;
+    if !root.as_os_str().is_empty() { *ROOT.lock().unwrap() = root; }
 }
 pub fn resolve(path: &str) -> PathBuf {
     let path = PathBuf::from(path.replace('\\', "/"));
@@ -86,7 +104,6 @@ pub fn relative_path(name: &str) -> io::Result<PathBuf> {
     Ok(name.into())
 }
 #[cfg(test)]
-#[test]
 fn browser_files_keep_paths_and_invalidate_replaced_samples() {
     clear();
     set_root("/imports/project".into());
@@ -106,4 +123,21 @@ fn browser_files_keep_paths_and_invalidate_replaced_samples() {
         relative_path("a/piano.wav").unwrap(),
         Path::new("a/piano.wav")
     );
+}
+
+#[cfg(test)]
+#[test]
+fn imported_samples_keep_portable_names_and_reject_collisions() {
+    browser_files_keep_paths_and_invalidate_replaced_samples();
+    clear();
+    set_root("/imports/first".into());
+    let reference = import("a/piano.wav", vec![1, 2]).unwrap();
+    assert_eq!(reference, Path::new("a/piano.wav"));
+    assert_eq!(read(resolve(reference.to_str().unwrap())).unwrap(), [1, 2]);
+    assert!(import("a/piano.wav", vec![9]).is_err());
+    assert_eq!(import("b/piano.wav", vec![3]).unwrap(), Path::new("b/piano.wav"));
+    clear();
+    set_root("/imports/reopened".into());
+    import("a/piano.wav", vec![1, 2]).unwrap();
+    assert_eq!(read(resolve(reference.to_str().unwrap())).unwrap(), [1, 2]);
 }
