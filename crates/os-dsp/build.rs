@@ -36,6 +36,7 @@ fn main() {
                 "-fno-rtti",
                 "-nostdinc++",
             ])
+            .args(if env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default().split(',').any(|f| f == "atomics") { vec!["-matomics", "-mbulk-memory"] } else { vec![] })
             .arg(format!("--sysroot={}", sysroot.display()))
             .arg("-isystem")
             .arg(sysroot.join("include/c++/v1"))

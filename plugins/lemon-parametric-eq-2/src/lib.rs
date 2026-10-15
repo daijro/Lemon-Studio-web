@@ -224,6 +224,7 @@ impl ClapPlugin for LemonEq {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Equalizer, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonEq {
     const VST3_CLASS_ID: [u8; 16] = *b"OpenStudioParEQ2";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Eq];
@@ -234,5 +235,6 @@ impl Vst3Plugin for LemonEq {
 #[cfg(not(feature = "linked"))]
 nih_export_clap!(LemonEq);
 #[cfg(not(feature = "linked"))]
+#[cfg(not(target_arch = "wasm32"))]
 nih_export_vst3!(LemonEq);
 os_plugkit::linked_clap_entry!(LemonEq);
