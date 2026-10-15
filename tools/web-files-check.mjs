@@ -6,7 +6,10 @@ import { join } from 'node:path';
 export async function checkFiles(page) {
   page.setDefaultTimeout(20000);
   page.on('dialog',d=>{d.accept();});
-  const snapshot=()=>page.evaluate(async()=>JSON.parse((await import('./os_app.js')).snapshot()));
+  const snapshot=async()=>{
+    const state=await page.waitForFunction(async()=>(await import('./os_app.js')).snapshot());
+    return JSON.parse(await state.jsonValue());
+  };
   const wait=async(predicate)=>{const end=Date.now()+20000;let state;while(!predicate(state=await snapshot())){assert.ok(Date.now()<end,`Timed out: ${predicate}; ${JSON.stringify({notes:state.notes,channels:state.channels,dirty:state.dirty,message:state.message})}`);await page.waitForTimeout(25);}};
   const click=async(action,options)=>{const s=await snapshot(),h=s.hits.findLast(h=>h.action===action||h.hint===action);assert.ok(h,`Missing ${action}`);const[x,y,w,z]=h.rect;await page.mouse.click(x+w/2,y+z/2,options);await page.waitForTimeout(150);};
   const note=async(offset)=>{const h=(await snapshot()).hits.find(h=>h.action==='PianoGrid');await page.mouse.click(h.rect[0]+offset,h.rect[1]+100);await page.waitForTimeout(150);};
