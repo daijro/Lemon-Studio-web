@@ -653,6 +653,8 @@ impl Feeder {
     /// Renders whole ticks until the queue holds one device block (`block` frames before the device has asked) and
     /// `AHEAD_TICKS` ticks more, or the engine has played out.
     fn fill(&mut self, block: usize) {
+        #[cfg(target_arch = "wasm32")]
+        let block = block.max(1024); // Web Workers can miss a 128-frame callback's scheduling deadline.
         let block = 2 * block.max(self.queue.block.load(Ordering::Relaxed)) as u64;
         let Ok(mut e) = self.engine.lock() else { return };
         // A paused (or stopped) stream renders no more: its fade plays from what is queued, and the engine starts no
@@ -1492,7 +1494,7 @@ where
     let channels = usize::from(config.channels);
     let errors=renderer.shared.clone();
     let mut stereo: Vec<f32> = Vec::with_capacity(8192);
-    device
+    let result = device
         .build_output_stream::<T, _, _>(
             config.clone(),
             move |out: &mut [T], _| {
@@ -1523,7 +1525,10 @@ where
             move |e| { if let Ok(mut slot)=errors.error.lock() { *slot=Some(format!("Audio stream: {e}")); } },
             None,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    #[cfg(target_arch = "wasm32")]
+    if let Ok(stream) = &result { crate::web::audio::watch(stream); }
+    result
 }
 
 #[cfg(test)]
