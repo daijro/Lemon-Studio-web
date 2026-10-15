@@ -144,6 +144,9 @@ impl Panel {
     /// left edge of the panel it comes with (`separator`). The spaces have no home: row 1 from x 0.
     pub fn home(self) -> (usize, f32, f32) {
         match self {
+            // Browser: the page has no window caption buttons (they are the browser's), so the panel takes no room and
+            // the hint panel starts at the band's left.
+            Panel::Caption if cfg!(target_arch = "wasm32") => (0, 0.0, 0.0),
             Panel::Caption => (0, 0.0, 68.0),
             Panel::Hint => (0, 68.0, 379.0),
             Panel::Transport => (0, 379.0, 575.0),

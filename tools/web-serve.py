@@ -6,12 +6,35 @@
 # and not any other part of Lemon Studio.
 
 import argparse
+from pathlib import Path
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 class Handler(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm", ".mjs": "text/javascript"}
+    def send_head(self):
+        self.compressed = False
+        return super().send_head()
+
+    def translate_path(self, path):
+        file = Path(super().translate_path(path))
+        # Serve sidecars only when the client accepts gzip; original URLs still work everywhere.
+        accepts = [part.strip() for part in self.headers.get("Accept-Encoding", "").split(",")]
+        if "gzip" in accepts:
+            candidate = file / "index.html" if file.is_dir() else file
+            compressed = candidate.with_name(candidate.name + ".gz")
+            if compressed.is_file():
+                self.compressed = True
+                return str(compressed)
+        return str(file)
+
+    def guess_type(self, path):
+        return super().guess_type(path.removesuffix(".gz") if self.compressed else path)
+
     def end_headers(self):
+        self.send_header("Vary", "Accept-Encoding")
+        if self.compressed:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         super().end_headers()
@@ -22,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, directory=args.directory))
-    print(f"Lemon Studio: http://127.0.0.1:{args.port}/", flush=True)
+    print(f"Lemon Studio: http://127.0.0.1:{server.server_port}/", flush=True)
     try: server.serve_forever()
     except KeyboardInterrupt: pass
     finally: server.server_close()
