@@ -218,12 +218,12 @@ fn row1(ui: &mut Ui, s: &State, f: &FrameInfo) {
     }
 
     // Hint panel: project title + hint / message.
-    let hp = Rect::span(72.0, 376.0, 4.0, 36.0);
+    let hp = Rect::span(if cfg!(target_arch = "wasm32") { 4.0 } else { 72.0 }, 376.0, 4.0, 36.0);
     sunken(ui, hp, t.sunken);
     ui.hit(hp, Action::DragWindow, "Hint bar");
-    ui.c.text_clip(Font::new(13), 76.0, 6.0, 280.0, t.text_dim.shade(-0.05), &f.title);
+    ui.c.text_clip(Font::new(13), hp.x + 4.0, 6.0, hp.w - 24.0, t.text_dim.shade(-0.05), &f.title);
     let hint: &str = if !f.hint.is_empty() { &f.hint } else { s.message.as_deref().unwrap_or("") };
-    ui.c.text_clip(Font::new(14), 77.0, 19.0, 280.0, t.text, hint);
+    ui.c.text_clip(Font::new(14), hp.x + 5.0, 19.0, hp.w - 24.0, t.text, hint);
     icons::draw(ui.c, Icon::MidiControl, Rect::span(360.0, 374.0, 17.0, 32.0), ui.t.s(0x515457));
 
     // Transport group.
