@@ -617,6 +617,7 @@ fn auto_name(app: &mut App, key: usize, path: &Path) {
 }
 
 /// Save preset as...: the save dialog, in the plugin's preset folder (`save_chosen` writes the file).
+#[cfg(not(target_arch = "wasm32"))]
 fn save_as(app: &mut App, key: usize) -> Option<String> {
     let h = header(app, key)?;
     if app.plugins.state(key).is_none() {
@@ -1186,3 +1187,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn save_as(_app: &mut App, _: usize) -> Option<String> { Some("Browser preset export is being connected".into()) }

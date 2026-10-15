@@ -12,3 +12,6 @@ os-dsp.workspace = true
 thiserror.workspace = true
 symphonia = { version = "0.6", default-features = false, features = ["wav", "pcm", "flac", "ogg", "vorbis", "mp3", "aiff", "id3v1", "id3v2"] }
 symphonia-codec-wavpack = "0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1"

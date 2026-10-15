@@ -783,6 +783,7 @@ pub fn page(tab: usize, s: &State) -> Vec<Group> {
             ];
             // The native host toggle appears only with `OPENSTUDIO_NATIVE_SETTINGS`, the second one only while the
             // native host is on too.
+            #[cfg(not(target_arch = "wasm32"))]
             if st.native {
                 scanning.push(Check(NATIVE_HOST_CHECK, os_native::enabled()));
                 if os_native::enabled() {

@@ -279,6 +279,7 @@ fn panel(ui: &mut Ui, c: &Ctx, p: Panel) -> bool {
 /// Caption buttons.
 fn caption(ui: &mut Ui, c: &Ctx) {
     let (t, a) = (ui.t, c.a);
+    #[cfg(not(target_arch = "wasm32"))]
     for (x, icon, action, hint) in [
         (4.0, Icon::Minimize, Action::Minimize, "Minimize"),
         (24.0, Icon::Restore, Action::Maximize, "Restore / maximize"),

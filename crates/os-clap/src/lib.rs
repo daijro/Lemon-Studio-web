@@ -170,7 +170,9 @@ impl Drop for Library {
 
 /// The window system editors are embedded in: Win32 on Windows, Cocoa on macOS, X11 elsewhere (under Wayland too,
 /// through XWayland: plugins do not embed in Wayland surfaces).
-const WINDOW_API: &CStr = if cfg!(windows) {
+const WINDOW_API: &CStr = if cfg!(target_arch = "wasm32") {
+    c"lemon-web"
+} else if cfg!(windows) {
     CLAP_WINDOW_API_WIN32
 } else if cfg!(target_os = "macos") {
     CLAP_WINDOW_API_COCOA

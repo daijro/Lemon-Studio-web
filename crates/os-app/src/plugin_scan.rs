@@ -10,7 +10,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_host::Format;
 
@@ -97,7 +97,7 @@ pub fn scan_in_child(path: &Path, format: Format) -> Scanned {
     let (tx, rx) = mpsc::channel();
     if let Some(out) = child.stdout.take() {
         // Plugins may print anything while they load: only the tagged line counts.
-        std::thread::spawn(move || {
+        crate::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
                 if let Some(rest) = line.strip_prefix(TAG) {
                     let _ = tx.send(rest.to_string());
@@ -120,7 +120,7 @@ pub fn scan_in_child(path: &Path, format: Format) -> Scanned {
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
-            Ok(None) if Instant::now() < end => std::thread::sleep(Duration::from_millis(10)),
+            Ok(None) if Instant::now() < end => crate::thread::sleep(Duration::from_millis(10)),
             _ => {
                 let _ = child.kill();
                 break child.wait().ok();
@@ -157,7 +157,10 @@ fn scan_file(path: &Path, format: Format) -> Scanned {
 /// Why plugin file `path` cannot load in this program, when its file tells without loading it (`os_vst2::unsupported`).
 fn unsupported(path: &Path, format: Format) -> Option<String> {
     match format {
+        #[cfg(not(target_arch = "wasm32"))]
         Format::Vst2 => os_vst2::unsupported(path),
+        #[cfg(target_arch = "wasm32")]
+        Format::Vst2 => Some(format!("{}: native plugins are unavailable in the browser",path.display())),
         _ => None,
     }
 }
@@ -195,7 +198,7 @@ pub fn start(prefs: &db::Prefs, old: Cache, mode: Mode) -> Sweep {
         dirs.retain(|d| d.kind == db::DirKind::Added);
         native.clear();
     }
-    std::thread::Builder::new()
+    crate::thread::Builder::new()
         .name("plugin scan".into())
         .spawn(move || {
             let found = db::discover(&dirs, native);
@@ -219,7 +222,7 @@ impl App {
     /// when there is no cache yet).
     pub fn start_plugins(&mut self) {
         let first = !self.load_plugins();
-        if first || self.state.plugdb.prefs.startup_scan {
+        if !cfg!(target_arch = "wasm32") && (first || self.state.plugdb.prefs.startup_scan) {
             self.start_scan(Mode::Changed);
         }
     }
@@ -241,6 +244,10 @@ impl App {
 
     /// Starts a scan, or queues it after the running one (one at a time).
     pub fn start_scan(&mut self, mode: Mode) {
+        if cfg!(target_arch = "wasm32") {
+            self.state.message = Some("Only built-in plugins run in this browser build".into());
+            return;
+        }
         if self.sweep.is_some() {
             let q = &mut self.scan_queued;
             *q = Some(if *q == Some(Mode::All) { Mode::All } else { mode });

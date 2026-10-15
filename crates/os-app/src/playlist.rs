@@ -593,11 +593,11 @@ pub struct PlaylistState {
     /// Track row pitch (vertical zoom: Alt+wheel; saved in the project's playlist view).
     pub row_h: f32,
     /// Last header click (track, time) for double-click rename.
-    pub last_header: Option<(u16, std::time::Instant)>,
+    pub last_header: Option<(u16, crate::time::Instant)>,
     /// Last left click on an audio clip (clip, time): a second one soon after opens its sampler.
-    pub last_clip: Option<(usize, std::time::Instant)>,
+    pub last_clip: Option<(usize, crate::time::Instant)>,
     /// Last left click in the ruler: a second one soon after clears the time selection.
-    pub last_ruler: Option<std::time::Instant>,
+    pub last_ruler: Option<crate::time::Instant>,
     /// Waveform cache by sample path (`None` = could not be loaded).
     pub waves: RefCell<HashMap<String, Option<Rc<Wave>>>>,
     /// Tones of the same samples for colourful waveforms, analysed when first needed (`tones`).
@@ -2853,7 +2853,7 @@ pub fn press_grid(app: &mut App, grid: Rect, right: bool) {
         if !right && matches!(tool, PlTool::Draw | PlTool::Paint | PlTool::Select) {
             let audio = audio_clip_row(s, &c);
             if audio.is_some() || matches!(c.source, ClipSource::Pattern(_)) {
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let double = s.playlist.last_clip.is_some_and(|(i, t)| i == ci && now.duration_since(t).as_millis() < 450);
                 s.playlist.last_clip = (!double).then_some((ci, now));
                 let opens = audio.map(|_| crate::shortcuts::clip_double_click(alt));
@@ -3636,7 +3636,7 @@ pub fn press_header(app: &mut App, t: u16, right: bool, at: (f32, f32)) {
         s.playlist.popup = Some(track_menu(s, t, app.mouse.0, app.mouse.1));
         return app.invalidate();
     }
-    let now = std::time::Instant::now();
+    let now = crate::time::Instant::now();
     let double = s.playlist.last_header.is_some_and(|(lt, when)| lt == t && now.duration_since(when).as_millis() < 450);
     s.playlist.track = t;
     s.playlist.last_header = Some((t, now));

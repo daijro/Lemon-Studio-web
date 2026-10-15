@@ -39,7 +39,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::device::{DeviceInfo, OutputDevice, Source};
 use os_engine::{Engine, PlayMode, SampleLibrary, SharedEffect, SharedInstrument};
@@ -355,7 +355,7 @@ impl Transport {
         let instruments: Instruments = Arc::new(Mutex::new(Hosts::default()));
         let shared = Arc::new(Shared { sounding: Mutex::new(Vec::with_capacity(256)), ..Shared::default() });
         let s = shared.clone();
-        let thread = std::thread::Builder::new()
+        let thread = crate::thread::Builder::new()
             .name("openstudio-audio".into())
             .spawn({
                 let latest = latest.clone();
@@ -940,38 +940,40 @@ impl Drop for Transport {
 
 /// A stream's feeder thread: woken by the device callback after each block; stopped and joined when dropped.
 struct FeedThread {
+    thread: Arc<std::sync::OnceLock<crate::thread::Thread>>,
     stop: Arc<AtomicBool>,
-    handle: Option<std::thread::JoinHandle<()>>,
+    handle: Option<crate::thread::JoinHandle<()>>,
 }
 
 impl FeedThread {
     fn spawn(mut feeder: Feeder) -> FeedThread {
         let stop = Arc::new(AtomicBool::new(false));
-        let handle = std::thread::Builder::new()
+        let thread = Arc::new(std::sync::OnceLock::new());
+        let handle = crate::thread::Builder::new()
             .name("lemonstudio-feeder".into())
             .spawn({
                 let stop = stop.clone();
+                let thread = thread.clone();
                 move || {
+                    let _ = thread.set(crate::thread::current());
                     raise_priority();
                     while !stop.load(Ordering::Acquire) {
                         feeder.fill(0);
-                        std::thread::park_timeout(Duration::from_millis(5));
+                        crate::thread::park_timeout(Duration::from_millis(5));
                     }
                 }
             })
             .expect("spawn feeder thread");
-        FeedThread { stop, handle: Some(handle) }
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = thread.set(handle.thread().clone());
+        FeedThread { thread, stop, handle: Some(handle) }
     }
 
-    fn thread(&self) -> Option<std::thread::Thread> {
-        self.handle.as_ref().map(|h| h.thread().clone())
-    }
+    fn thread(&self) -> Option<Arc<std::sync::OnceLock<crate::thread::Thread>>> { Some(self.thread.clone()) }
 
     /// Renders now (a live note arrived).
     fn wake(&self) {
-        if let Some(h) = &self.handle {
-            h.thread().unpark();
-        }
+        if let Some(t) = self.thread.get() { t.unpark(); }
     }
 }
 
@@ -979,7 +981,7 @@ impl Drop for FeedThread {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
         if let Some(h) = self.handle.take() {
-            h.thread().unpark();
+            if let Some(t) = self.thread.get() { t.unpark(); }
             let _ = h.join();
         }
     }
@@ -1095,6 +1097,23 @@ fn reset_hosts(inst: &Instruments, effects: bool) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn receive(rx: &Receiver<Cmd>) -> Result<Cmd, mpsc::RecvTimeoutError> { rx.recv_timeout(Duration::from_millis(10)) }
+
+#[cfg(target_arch = "wasm32")]
+fn receive(rx: &Receiver<Cmd>) -> Result<Cmd, mpsc::RecvTimeoutError> {
+    // This runs only on the audio control worker; std's timed receive uses an unavailable native clock.
+    let until = Instant::now() + Duration::from_millis(10);
+    loop {
+        match rx.try_recv() {
+            Ok(cmd) => return Ok(cmd),
+            Err(mpsc::TryRecvError::Disconnected) => return Err(mpsc::RecvTimeoutError::Disconnected),
+            Err(mpsc::TryRecvError::Empty) if Instant::now() >= until => return Err(mpsc::RecvTimeoutError::Timeout),
+            Err(mpsc::TryRecvError::Empty) => crate::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+}
+
 fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option<Project>>>, inst: Instruments, mut library: SampleLibrary) {
     // Every stream below plays through it.
     let mut device = OutputDevice::default();
@@ -1171,7 +1190,7 @@ fn audio_thread(rx: Receiver<Cmd>, shared: Arc<Shared>, latest: Arc<Mutex<Option
     };
     loop {
         crate::device::pump();
-        match rx.recv_timeout(Duration::from_millis(10)) {
+        match receive(&rx) {
             // The output is closed by Auto close: previews and live notes find no stream and open none.
             // So is a device that failed, until it opens again.
             Ok(Cmd::Preview(_) | Cmd::PreviewFor(..) | Cmd::PreviewSong(_) | Cmd::NoteOn(..) | Cmd::Midi(..) | Cmd::TapClick(..)) if closed || lost.is_some() => {}
@@ -1814,7 +1833,7 @@ impl Feeder {
 struct Renderer {
     queue: Arc<Queue>,
     /// The feeder thread, woken after each block; tests fill the queue in the callback instead (`inline`).
-    wake: Option<std::thread::Thread>,
+    wake: Option<Arc<std::sync::OnceLock<crate::thread::Thread>>>,
     inline: Option<Feeder>,
     ctl: Arc<Ctl>,
     done: Arc<AtomicBool>,
@@ -1879,9 +1898,7 @@ impl Renderer {
                 self.shared.underruns.fetch_add(1, Ordering::Relaxed);
             }
         }
-        if let Some(t) = &self.wake {
-            t.unpark();
-        }
+        if let Some(t) = self.wake.as_ref().and_then(|t|t.get()) { t.unpark(); }
         if ended && self.queue.queued() == 0 {
             self.done.store(true, Ordering::Relaxed);
             if got == 0 {
@@ -2122,7 +2139,7 @@ mod tests {
             match t.export_status() {
                 Export::Done(r) => break r.expect("export").0,
                 _ if t0.elapsed() > Duration::from_secs(30) => panic!("export did not finish"),
-                _ => std::thread::sleep(Duration::from_millis(5)),
+                _ => crate::thread::sleep(Duration::from_millis(5)),
             }
         };
         assert_eq!(t.export_status(), Export::Idle, "the result is handed out once");
@@ -2236,10 +2253,10 @@ mod tests {
         assert!(t.seconds() > 0.0 && (!t.sounding().is_empty() || t.peaks().0 > 0.0), "playing");
         project.patterns[0].notes.clear();
         t.update(&project);
-        std::thread::sleep(Duration::from_millis(300));
+        crate::thread::sleep(Duration::from_millis(300));
         let mut loud = 0;
         for _ in 0..40 {
-            std::thread::sleep(Duration::from_millis(50));
+            crate::thread::sleep(Duration::from_millis(50));
             if !t.sounding().is_empty() {
                 loud += 1;
             }
@@ -2261,7 +2278,7 @@ mod tests {
         let track = project.channels[4].mixer_track;
         project.mixer.iter_mut().find(|m| m.index == track).unwrap().volume = Some(0.0);
         t.update(&project);
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         assert_eq!(t.peaks(), (0.0, 0.0), "fader at zero is silent within 100 ms");
     }
 
@@ -2284,11 +2301,11 @@ mod tests {
         t.play(&project, PlayMode::Pattern(1), 0.0);
         wait_for(|| t.seconds() > 0.0);
         t.note_on(4, 67, 100);
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         assert!(t.sounding().contains(&(4, 67)), "held while playing: {:?}", t.sounding());
         assert!(t.peaks().0 > 0.01, "heard while playing");
         t.note_off(4, 67);
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         assert!(t.sounding().is_empty() && t.peaks() == (0.0, 0.0), "released: {:?}", t.peaks());
     }
 
@@ -2304,18 +2321,18 @@ mod tests {
         wait_for(|| t.seconds() >= 0.2);
         assert!(t.seconds() >= 0.2, "playing: {}", t.seconds());
         t.pause();
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         let at = t.seconds();
         let tick = t.tick();
-        std::thread::sleep(Duration::from_millis(400));
+        crate::thread::sleep(Duration::from_millis(400));
         assert!(t.paused() && (t.seconds() - at).abs() < 1e-9 && (t.tick() - tick).abs() < 1e-9, "position held");
         assert_eq!(t.peaks(), (0.0, 0.0), "silent");
         t.resume();
-        std::thread::sleep(Duration::from_millis(300));
+        crate::thread::sleep(Duration::from_millis(300));
         assert!(!t.paused() && t.playing() && t.seconds() > at + 0.1, "resumed from {at}: {}", t.seconds());
         t.pause();
         t.stop();
-        std::thread::sleep(Duration::from_millis(150));
+        crate::thread::sleep(Duration::from_millis(150));
         assert!(!t.playing() && t.seconds() == 0.0 && t.tick() == 0.0 && t.peaks() == (0.0, 0.0), "stopped = rewound");
     }
 
@@ -2481,7 +2498,7 @@ mod tests {
         let t0 = Instant::now();
         let mut seen = vec![t.tick()];
         while seen.last().is_some_and(|&k| k <= start + 10.0) && t0.elapsed() < Duration::from_secs(3) {
-            std::thread::sleep(Duration::from_millis(1));
+            crate::thread::sleep(Duration::from_millis(1));
             seen.push(t.tick());
         }
         assert!(seen.iter().all(|&k| k >= start), "heard before the start: {:?}", seen.iter().find(|&&k| k < start));
@@ -2490,22 +2507,22 @@ mod tests {
         crate::audio_cfg::AudioCfg { buffer: Some(2048), ..Default::default() }.apply();
         let before = t.tick();
         t.reopen();
-        std::thread::sleep(Duration::from_millis(300));
+        crate::thread::sleep(Duration::from_millis(300));
         assert!(t.playing() && !t.paused());
         assert!(t.tick() > before, "went on from {before}: {}", t.tick());
         assert_eq!(t.opened().map(|o| o.fixed), Some(Some(2048)));
         // Paused: the new stream holds the same position, silent.
         t.pause();
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         let held = t.tick();
         crate::audio_cfg::AudioCfg::default().apply();
         t.reopen();
-        std::thread::sleep(Duration::from_millis(300));
+        crate::thread::sleep(Duration::from_millis(300));
         assert!(t.paused() && (t.tick() - held).abs() < 1.0, "held at {held}: {}", t.tick());
         assert_eq!(t.peaks(), (0.0, 0.0), "silent");
         assert_eq!(t.opened().map(|o| o.fixed), Some(None));
         t.resume();
-        std::thread::sleep(Duration::from_millis(200));
+        crate::thread::sleep(Duration::from_millis(200));
         assert!(t.tick() > held, "resumed");
         t.stop();
     }
@@ -2566,9 +2583,9 @@ mod tests {
         assert!(n1 > 0 && b.iter().any(|v| v.abs() > 0.01), "tap has audio");
         assert!(t.sample_rate() > 0);
         t.stop();
-        std::thread::sleep(Duration::from_millis(150));
+        crate::thread::sleep(Duration::from_millis(150));
         let n2 = t.tap(&mut b);
-        std::thread::sleep(Duration::from_millis(100));
+        crate::thread::sleep(Duration::from_millis(100));
         assert_eq!(t.tap(&mut b), n2, "no more samples after stop");
     }
 
@@ -2610,7 +2627,7 @@ mod tests {
         wait_for(|| t.peaks().0 > 0.05);
         assert!(t.peaks().0 > 0.05, "the instrument is heard: {:?}", t.peaks());
         t.stop();
-        std::thread::sleep(Duration::from_millis(200));
+        crate::thread::sleep(Duration::from_millis(200));
         assert_eq!(t.peaks(), (0.0, 0.0), "silent after stop");
         assert!(resets.load(Ordering::Relaxed) >= 1, "instrument was reset");
         assert!(!inst.lock().unwrap().active(), "no tail left to resume");
@@ -2638,7 +2655,7 @@ mod tests {
         assert_eq!(pl.voices(), 2, "the synth's chord");
         assert!(t.engine_voices() >= 1, "the engine's own voice");
         t.stop();
-        std::thread::sleep(Duration::from_millis(200));
+        crate::thread::sleep(Duration::from_millis(200));
         assert_eq!((t.engine_voices(), pl.voices()), (0, 0), "Stop ends every voice");
     }
 

@@ -82,6 +82,8 @@ pub trait Editor: Send {
 /// `raw_window_handle`, then you'll need to wrap around this type and implement the trait yourself.
 #[derive(Debug, Clone, Copy)]
 pub enum ParentWindowHandle {
+    #[cfg(target_arch = "wasm32")]
+    WebCanvas(u32),
     /// The ID of the host's parent window. Used with X11.
     X11Window(u32),
     /// A handle to the host's parent window. Used only on macOS.
@@ -93,6 +95,12 @@ pub enum ParentWindowHandle {
 unsafe impl HasRawWindowHandle for ParentWindowHandle {
     fn raw_window_handle(&self) -> RawWindowHandle {
         match *self {
+            #[cfg(target_arch = "wasm32")]
+            ParentWindowHandle::WebCanvas(id) => {
+                let mut handle = raw_window_handle::WebWindowHandle::empty();
+                handle.id = id;
+                RawWindowHandle::Web(handle)
+            }
             ParentWindowHandle::X11Window(window) => {
                 let mut handle = raw_window_handle::XcbWindowHandle::empty();
                 handle.window = window;

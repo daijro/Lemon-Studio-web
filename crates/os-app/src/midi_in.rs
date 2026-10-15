@@ -406,7 +406,7 @@ mod tests {
         conn.send(&[0x90, 60, 100]).unwrap();
         conn.send(&[0xb0, 1, 64]).unwrap();
         conn.send(&[0x80, 60, 0]).unwrap();
-        std::thread::sleep(Duration::from_millis(200));
+        crate::thread::sleep(Duration::from_millis(200));
         conn.close();
         let got: Vec<Msg> = midi.poll().into_iter().map(|e| e.msg).collect();
         assert_eq!(got, vec![Msg::On { ch: 0, key: 60, vel: 100 }, Msg::Cc { ch: 0, n: 1, v: 64 }, Msg::Off { ch: 0, key: 60, vel: 0 }]);
