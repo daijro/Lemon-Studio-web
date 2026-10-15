@@ -22,7 +22,10 @@ use crate::plugins::{format_name, fx_of, Available, Plugins};
 
 /// A plugin compiled into Lemon Studio (its library is this program).
 pub fn is_builtin(d: &Descriptor) -> bool {
-    std::env::current_exe().is_ok_and(|exe| exe == d.path)
+    #[cfg(not(target_arch = "wasm32"))]
+    { std::env::current_exe().is_ok_and(|exe| exe == d.path) }
+    #[cfg(target_arch = "wasm32")]
+    { d.path == std::path::Path::new("/builtin/lemonstudio") }
 }
 
 #[cfg(test)]

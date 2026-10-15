@@ -66,7 +66,10 @@ fn probe() -> &'static Probe {
 type Stamp = (u64, Option<std::time::SystemTime>);
 
 fn stamp(path: &Path) -> Option<Stamp> {
-    std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()))
+    #[cfg(not(target_arch = "wasm32"))]
+    { std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok())) }
+    #[cfg(target_arch = "wasm32")]
+    { os_paths::fs::revision(path).map(|revision|(revision,None)) }
 }
 
 /// The decodes `load_shared` handed out, by file, with the stamp of the file they were made from.

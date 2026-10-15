@@ -1201,6 +1201,8 @@ impl Feeder {
     /// finds the block, the margin and less than a tick more queued. An engine just handed in starts after the resets
     /// it asked for, and only its own ticks count: the callback goes on to them once it has faded out the ones before.
     fn fill(&mut self, block: usize) {
+        #[cfg(target_arch = "wasm32")]
+        let block = block.max(1024); // Web Workers can miss a 128-frame callback's scheduling deadline.
         let slot = self.slot.clone();
         let Ok(mut slot) = slot.lock() else { return };
         let t0 = Instant::now();
