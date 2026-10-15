@@ -46,7 +46,10 @@ pub fn native_first() -> bool {
     if let Some(v) = NATIVE_FIRST.with(|n| n.get()) {
         return v;
     }
-    os_native::prefer_native()
+    #[cfg(not(target_arch = "wasm32"))]
+    { os_native::prefer_native() }
+    #[cfg(target_arch = "wasm32")]
+    { false }
 }
 
 /// Whether a channel or slot holding file id `id` is one a built-in Lemon recreation plays (3x Osc, the parametric EQ).
@@ -341,7 +344,7 @@ impl crate::app::App {
     /// With the experimental native host on (Settings > Plugins), the native plugins an opened project names are
     /// hosted by the installed plugins themselves (spec: plugins/fruity-abi.md "Opened projects"): see `host_native`.
     pub(crate) fn sync_native(&mut self) {
-        if os_native::enabled() {
+        if crate::plugins::native_enabled() {
             self.host_native();
         }
     }

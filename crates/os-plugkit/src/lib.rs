@@ -21,8 +21,16 @@ pub mod win;
 pub mod x11;
 #[cfg(target_os = "macos")]
 pub mod mac;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
 pub mod input;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
+#[cfg(target_arch = "wasm32")]
+pub use web as gui;
+#[cfg(target_arch = "wasm32")]
+pub use web_time as time;
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::time;
 
 /// The editor window of this platform where it runs the plugins' shared editor loop: `x11` on Linux, `mac` on macOS.
 #[cfg(target_os = "linux")]

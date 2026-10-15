@@ -123,7 +123,7 @@ mod tests {
         let mut conn = out.connect(&port, "loopback").expect("open the loopback output");
         conn.send(&[0x90, 60, 100]).unwrap();
         conn.send(&[0x80, 60, 0]).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        crate::thread::sleep(crate::time::Duration::from_millis(200));
         conn.close();
         assert_eq!(midi.poll(), vec![Msg::On(60, 100), Msg::Off(60)]);
         assert!(WAKES.load(Ordering::Relaxed) >= 2, "each note wakes the UI");

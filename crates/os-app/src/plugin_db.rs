@@ -377,6 +377,9 @@ impl SearchDir {
 
 /// Every search folder: the VST 3, CLAP and VST 2 standard folders, then the added ones.
 pub fn search_dirs(p: &Prefs) -> Vec<SearchDir> {
+    #[cfg(target_arch = "wasm32")]
+    let standard = std::iter::empty::<(PathBuf, Format)>();
+    #[cfg(not(target_arch = "wasm32"))]
     let standard = os_vst3::standard_dirs()
         .into_iter()
         .map(|d| (d, Format::Vst3))
@@ -471,6 +474,7 @@ fn walk(dir: &Path, depth: u32, formats: Formats, walked: &mut HashSet<(PathBuf,
         let format = match ext.as_deref() {
             Some("clap") if formats.clap && os_clap::is_plugin(&p) => Some(Format::Clap),
             Some("vst3") if formats.vst3 && (p.is_dir() || p.is_file()) => Some(Format::Vst3),
+            #[cfg(not(target_arch = "wasm32"))]
             Some(x) if x == os_vst2::EXTENSION && formats.vst2 && os_vst2::is_plugin(&p) => Some(Format::Vst2),
             _ => None,
         };
@@ -498,9 +502,15 @@ fn builtin_file(p: &Path) -> bool {
 /// itself.
 pub fn stamp(path: &Path, format: Format) -> (u64, u64) {
     let module = match format {
+        #[cfg(not(target_arch = "wasm32"))]
         Format::Vst3 => os_vst3::module_file(path),
+        #[cfg(target_arch = "wasm32")]
+        Format::Vst3 => path.to_path_buf(),
         Format::Clap => os_clap::module_file(path),
+        #[cfg(not(target_arch = "wasm32"))]
         Format::Vst2 => os_vst2::module_file(path),
+        #[cfg(target_arch = "wasm32")]
+        Format::Vst2 => path.to_path_buf(),
         Format::Native => path.to_path_buf(),
     };
     let file = if module.exists() { module } else { path.to_path_buf() };
@@ -563,7 +573,7 @@ pub fn sweep(
     let total = todo.len();
     let next = AtomicUsize::new(0);
     let results = Mutex::new(files);
-    std::thread::scope(|sc| {
+    crate::thread::scope(|sc| {
         for _ in 0..workers.max(1).min(total) {
             sc.spawn(|| {
                 loop {

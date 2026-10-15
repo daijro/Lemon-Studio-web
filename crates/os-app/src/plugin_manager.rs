@@ -73,6 +73,7 @@ impl App {
     }
 
     /// Add folder... (§2): a folder dialog; the folder and its sub-folders are searched for every format.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn add_plugin_folder(&mut self) {
         use crate::filedlg::{FileDlg, Mode};
         self.file_dialog(FileDlg::new(Mode::Folder, "Add a plugin folder", "plugins", crate::dialog::Then::PluginFolder));

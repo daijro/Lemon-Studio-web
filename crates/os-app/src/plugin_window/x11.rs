@@ -316,13 +316,13 @@ impl FrameWindow {
             // A managed window goes back to the root when the window manager lets it go (it may have put it in a frame
             // of its own): wait for that, or the manager's reparent would undo ours.
             let _ = c.flush();
-            let start = std::time::Instant::now();
-            while start.elapsed() < std::time::Duration::from_millis(500) {
+            let start = crate::time::Instant::now();
+            while start.elapsed() < crate::time::Duration::from_millis(500) {
                 let parent = c.query_tree(f.win).ok().and_then(|t| t.reply().ok()).map(|t| t.parent);
                 if parent == Some(root) {
                     break;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                crate::thread::sleep(crate::time::Duration::from_millis(5));
             }
             let at = from_root(&f.conn, owner, screen);
             f.pos.set(at);
