@@ -76,6 +76,10 @@ fn stamp(path: &Path) -> Option<Stamp> {
 /// copy instead of decoding it again. Project loading decodes samples on worker threads this way so that the plugin
 /// instances made afterwards on the UI thread find them ready (spec: ui/project-loading.md).
 pub fn load_shared(path: &Path) -> Result<Arc<Sample>, SampleError> {
+    #[cfg(target_arch = "wasm32")]
+    let resolved = os_paths::fs::resolve(&path.to_string_lossy());
+    #[cfg(target_arch = "wasm32")]
+    let path = resolved.as_path();
     static LIVE: OnceLock<std::sync::Mutex<HashMap<PathBuf, (std::sync::Weak<Sample>, Stamp)>>> = OnceLock::new();
     let live = LIVE.get_or_init(Default::default);
     let st = stamp(path);
