@@ -294,7 +294,10 @@ pub fn builtin_effects() -> Vec<Available> {
 /// The plugins of a CLAP entry table linked into this program.
 fn linked(cell: &OnceLock<Option<Arc<os_clap::Library>>>, entry: *const std::ffi::c_void, name: &str) -> Vec<Available> {
     let lib = cell.get_or_init(|| {
+        #[cfg(not(target_arch = "wasm32"))]
         let path = std::env::current_exe().unwrap_or_default();
+        #[cfg(target_arch = "wasm32")]
+        let path = PathBuf::from("/builtin/lemonstudio");
         // SAFETY: `entry` is a linked plugin's static CLAP entry table.
         match unsafe { os_clap::Library::from_entry(entry, &path) } {
             Ok(l) => Some(l),
