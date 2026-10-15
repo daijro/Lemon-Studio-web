@@ -204,6 +204,7 @@ fn row1(ui: &mut Ui, s: &State, f: &FrameInfo, fit: f32) {
     if 63.0 > fit {
         return;
     }
+    #[cfg(not(target_arch = "wasm32"))]
     for (x, icon, action, hint) in [
         (4.0, Icon::Minimize, Action::Minimize, "Minimize"),
         (24.0, Icon::Restore, Action::Maximize, "Restore / maximize"),

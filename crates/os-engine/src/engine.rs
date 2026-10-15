@@ -14,7 +14,10 @@
 //       audio/channel-envelopes.md (volume and pitch envelopes), audio/time-stretch.md
 
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 use os_model::{ChannelKind, ClipSource, ControlPoint, Project, Stretching};
 

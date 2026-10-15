@@ -2588,6 +2588,8 @@ impl<P: ClapPlugin> Wrapper<P> {
             return false;
         }
 
+        #[cfg(target_arch = "wasm32")]
+        if CStr::from_ptr(api) == c"lemon-web" { return true; }
         #[cfg(all(target_family = "unix", not(target_os = "macos")))]
         if CStr::from_ptr(api) == CLAP_WINDOW_API_X11 {
             return true;
@@ -2624,6 +2626,8 @@ impl<P: ClapPlugin> Wrapper<P> {
             *api = CLAP_WINDOW_API_WIN32.as_ptr();
         }
 
+        #[cfg(target_arch = "wasm32")]
+        { *api = c"lemon-web".as_ptr(); }
         // We don't do standalone floating windows yet
         *is_floating = false;
 
@@ -2771,6 +2775,9 @@ impl<P: ClapPlugin> Wrapper<P> {
             let mut editor_handle = wrapper.editor_handle.lock();
             if editor_handle.is_none() {
                 let api = CStr::from_ptr(window.api);
+                #[cfg(target_arch = "wasm32")]
+                let parent_handle = ParentWindowHandle::WebCanvas(window.specific.x11 as u32);
+                #[cfg(not(target_arch = "wasm32"))]
                 let parent_handle = if api == CLAP_WINDOW_API_X11 {
                     ParentWindowHandle::X11Window(window.specific.x11 as u32)
                 } else if api == CLAP_WINDOW_API_COCOA {
