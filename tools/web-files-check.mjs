@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export async function checkFiles(page) {
   page.setDefaultTimeout(20000);
   page.on('dialog',d=>{d.accept();});
   const snapshot=()=>page.evaluate(async()=>JSON.parse((await import('./os_app.js')).snapshot()));
   const wait=async(predicate)=>{const end=Date.now()+20000;let state;while(!predicate(state=await snapshot())){assert.ok(Date.now()<end,`Timed out: ${predicate}; ${JSON.stringify({notes:state.notes,channels:state.channels,dirty:state.dirty,message:state.message})}`);await page.waitForTimeout(25);}};
-  const click=async(action)=>{const s=await snapshot(),h=s.hits.findLast(h=>h.action===action||h.hint===action);assert.ok(h,`Missing ${action}`);const[x,y,w,z]=h.rect;await page.mouse.click(x+w/2,y+z/2);await page.waitForTimeout(150);};
+  const click=async(action,options)=>{const s=await snapshot(),h=s.hits.findLast(h=>h.action===action||h.hint===action);assert.ok(h,`Missing ${action}`);const[x,y,w,z]=h.rect;await page.mouse.click(x+w/2,y+z/2,options);await page.waitForTimeout(150);};
   const note=async(offset)=>{const h=(await snapshot()).hits.find(h=>h.action==='PianoGrid');await page.mouse.click(h.rect[0]+offset,h.rect[1]+100);await page.waitForTimeout(150);};
   const save=async()=>{const done=page.waitForEvent('download');await page.keyboard.press('Control+s');return done;};
   const storage=()=>page.evaluate(async()=>{const db=await new Promise((ok,no)=>{const r=indexedDB.open('lemon-studio',1);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});try{return await new Promise((ok,no)=>{const r=db.transaction('workspace').objectStore('workspace').get('current');r.onsuccess=()=>ok({project:[...r.result.project],files:r.result.files.map(f=>({path:f.path,bytes:[...f.bytes]}))});r.onerror=()=>no(r.error);});}finally{db.close();}});
@@ -14,8 +16,13 @@ export async function checkFiles(page) {
   await click('Menu(2)');await click('MenuItem(2, 0)');await click('Lemon Trio');
   await page.locator('.plugin-window canvas').waitFor();await page.getByRole('button',{name:'Close instrument editor'}).click();
   await click('ToggleWin(PianoRoll)');await note(40);await wait(s=>s.notes===1);
-  const downloaded=await save();const flp=await readFile(await downloaded.path());assert.equal(flp.subarray(0,4).toString(),'FLhd');
+  // Saving must remain responsive when the audio worker owns an instrument during completion.
+  await page.evaluate(()=>{globalThis.originalTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(...args){const tx=originalTransaction.apply(this,args);if(args[1]==='readwrite'){const until=performance.now()+1000,store=tx.objectStore('workspace');const keep=()=>{if(performance.now()<until)store.get('current').onsuccess=keep;};keep();}return tx;};});
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await wait(s=>s.pluginLocked);
+  const downloaded=await save();
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(2000);});await wait(s=>s.pluginLocked);const flp=await readFile(await downloaded.path());assert.equal(flp.subarray(0,4).toString(),'FLhd');
   await wait(s=>!s.dirty&&s.message?.includes('Saved in this browser'));
+  await page.evaluate(()=>IDBDatabase.prototype.transaction=originalTransaction);
   const good=await storage();
   await page.reload();await page.locator('html[data-lemon-ready=true]').waitFor();await wait(s=>!s.loading&&s.notes===1);
   // Malformed and cancelled selections must leave the current project untouched.
@@ -31,8 +38,10 @@ export async function checkFiles(page) {
   await page.evaluate(()=>{HTMLAnchorElement.prototype.click=originalClick;});
   // Hold a transaction open while the user edits; its completion must not clear those newer edits.
   await page.evaluate(()=>{globalThis.originalTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(...args){const tx=originalTransaction.apply(this,args);if(args[1]==='readwrite'){const until=performance.now()+1500,store=tx.objectStore('workspace');const keep=()=>{if(performance.now()<until)store.get('current').onsuccess=keep;};keep();}return tx;};});
-  await save();await note(200);await wait(s=>s.notes===3);await wait(s=>s.message?.startsWith('Earlier version saved'));
+  await save();await note(200);await wait(s=>s.notes===3);
+  await wait(s=>s.message?.startsWith('Earlier version saved'));
   assert.equal((await snapshot()).dirty,true);await page.evaluate(()=>IDBDatabase.prototype.transaction=originalTransaction);
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await wait(s=>s.pluginLocked);
   const exported=page.waitForEvent('download');await page.keyboard.press('Control+r');const wav=await readFile(await (await exported).path());
   assert.equal(wav.subarray(0,4).toString(),'RIFF');assert.equal(wav.readUInt32LE(24),48000);
   let peak=0;for(let i=44;i+4<=wav.length;i+=4)peak=Math.max(peak,Math.abs(wav.readFloatLE(i)));assert.ok(peak>0.001&&peak<=2,`WAV peak ${peak}`);assert.equal((await snapshot()).notes,3);assert.equal((await snapshot()).dirty,true);
@@ -41,6 +50,30 @@ export async function checkFiles(page) {
   chooser=page.waitForEvent('filechooser');await page.keyboard.press('Control+o');await (await chooser).setFiles({name:'earlier.flp',mimeType:'application/octet-stream',buffer:flp});
   await page.waitForFunction(()=>!!globalThis.finishFile);await click('Menu(0)');await click('MenuItem(0, 0)');await wait(s=>s.notes===0);
   await page.evaluate(()=>{File.prototype.arrayBuffer=originalArrayBuffer;finishFile();});await page.waitForTimeout(500);assert.equal((await snapshot()).notes,0);
+  // A newly imported sample must reopen from a downloaded FLP beside the original sample.
+  await wait(s=>!s.loading);
+  if(!(await snapshot()).hits.some(h=>h.action==='ChannelSelect(0)'))await click('ToggleWin(ChannelRack)');
+  await click('ChannelSelect(0)',{button:'right'});
+  chooser=page.waitForEvent('filechooser');await click('Load sample...');
+  const originalSample=await readFile(join(process.env.WEB_FILE_FIXTURE??'target/web-files','a/piano.wav'));
+  await (await chooser).setFiles({name:'piano.wav',mimeType:'audio/wav',buffer:originalSample});
+  await wait(s=>s.dirty);
+  const importedDownload=await save();const importedFlp=await readFile(await importedDownload.path());
+  assert.ok(importedFlp.includes(Buffer.from('piano.wav','utf16le')));
+  assert.ok(!importedFlp.includes(Buffer.from('/imports/','utf16le')),'Downloaded FLP must not contain browser-only sample paths');
+  await wait(s=>!s.dirty);
+  const portable=await mkdtemp(join(tmpdir(),'lemon-portable-'));
+  try {
+    await writeFile(join(portable,'song.flp'),importedFlp);await writeFile(join(portable,'piano.wav'),originalSample);
+    chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 17)');await (await chooser).setFiles(portable);
+    await wait(s=>!s.loading&&s.channels===1&&s.message?.endsWith('/song.flp'));
+    if((await snapshot()).hits.some(h=>h.action==='CloseWin(ChannelRack)'))await click('CloseWin(ChannelRack)');
+    if(!(await snapshot()).hits.some(h=>h.action==='PianoGrid'))await click('ToggleWin(PianoRoll)');
+    await note(40);await wait(s=>s.notes===1);
+    const roundTripExport=page.waitForEvent('download');await page.keyboard.press('Control+r');const audio=await readFile(await (await roundTripExport).path());
+    let peak=0;for(let i=44;i+4<=audio.length;i+=4)peak=Math.max(peak,Math.abs(audio.readFloatLE(i)));
+    assert.ok(peak>0.001,'Reopened downloaded project must resolve its imported sample');
+  } finally {await rm(portable,{recursive:true,force:true});}
   // Folder import retains both same-named samples and unavailable native plugin bytes.
   chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 17)');await (await chooser).setFiles(process.env.WEB_FILE_FIXTURE??'target/web-files');
   await wait(s=>!s.loading&&s.channels===6);const folderDownload=await save();const folderFlp=await readFile(await folderDownload.path());

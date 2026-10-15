@@ -29,6 +29,7 @@ jobs:
       - run: npx playwright install --with-deps chromium firefox
       - name: Build fixtures and app with test observations
         run: |
+          node crates/os-app/web/files.test.mjs
           tools/web-fixtures.sh
           tools/web-build.sh --features web-test
       - name: Chromium

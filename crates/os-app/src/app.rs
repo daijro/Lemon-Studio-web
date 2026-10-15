@@ -1638,7 +1638,14 @@ impl App {
         let first = job.options.ticked().next().unwrap_or(0);
         let name = job.file(first).file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
         let mode = if song { PlayMode::Song } else { PlayMode::Pattern(self.state.pattern) };
+        #[cfg(target_arch = "wasm32")]
+        if !self.plugins.try_set_offline(job.options.hq) {
+            crate::web::files::retry_export();
+            self.state.message=Some("Waiting for instruments before exporting…".into());
+            return self.invalidate();
+        }
         self.export_reveal = job.options.reveal;
+        #[cfg(not(target_arch = "wasm32"))]
         self.plugins.set_offline(job.options.hq);
         // Lemon Sampler voices playing from disk wait for their frames in every export, high quality or not.
         lemon_sampler::stream::set_exporting(true);
@@ -1659,6 +1666,9 @@ impl App {
             crate::transport::Export::Done(r) => {
                 self.export = None;
                 self.midi_after_export();
+                #[cfg(target_arch = "wasm32")]
+                if !self.plugins.try_set_offline(false) { crate::web::files::retry_online(); }
+                #[cfg(not(target_arch = "wasm32"))]
                 self.plugins.set_offline(false);
                 lemon_sampler::stream::set_exporting(false);
                 if let Some(p) = self.pattern_render.take() {

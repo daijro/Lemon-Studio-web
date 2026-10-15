@@ -47,6 +47,12 @@ impl Plugins {
     /// The project-file state of the Lemon Trio on rack row `row` (its plugin state converted back), `None` when the
     /// row hosts something else.
     pub fn osc3_file_state(&self, row: usize) -> Option<Vec<u8>> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some((desc,state))=crate::web::files::saved_plugin(row) {
+            return if desc.name == LEMON_TRIO && crate::project_plugins::is_builtin(&desc) {
+                lemon_3x_osc::params::fl_from_plugin_state(&state?)
+            } else { None };
+        }
         let h = self.hosted.get(&row)?;
         let p = h.plugin.lock().ok()?;
         if p.desc().name != LEMON_TRIO || !crate::project_plugins::is_builtin(p.desc()) {
