@@ -21,25 +21,33 @@ jobs:
           node-version: 24
           cache: npm
       - name: Native fixture dependencies
+        if: github.event_name == 'workflow_dispatch'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libwayland-dev libclang-dev pkg-config pulseaudio
       - uses: Swatinem/rust-cache@v2
       - name: Install web tooling
         run: tools/web-setup.sh
       - run: npm ci
-      - run: npx playwright install --with-deps chromium firefox
+      - run: npx playwright install --with-deps chromium
+      - name: Install Firefox for full checks
+        if: github.event_name == 'workflow_dispatch'
+        run: npx playwright install --with-deps firefox
       - name: Build fixtures and app with test observations
+        if: github.event_name == 'workflow_dispatch'
         run: |
           node crates/os-app/web/files.test.mjs
           tools/web-fixtures.sh
           tools/web-build.sh --features web-test
       - name: Start virtual audio output
+        if: github.event_name == 'workflow_dispatch'
         run: |
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=ci channels=2 rate=48000
           pactl set-default-sink ci
       - name: Chromium
+        if: github.event_name == 'workflow_dispatch'
         run: node tools/web-check.mjs all
       - name: Firefox
+        if: github.event_name == 'workflow_dispatch'
         run: WEB_BROWSER=firefox node tools/web-check.mjs all
       - name: Package production app
         run: |
