@@ -851,6 +851,8 @@ impl Feeder {
     /// the margin beyond it, or the engine has played out. It stops at the first tick that gets there, so the device
     /// finds the block, the margin and less than a tick more queued.
     fn fill(&mut self, block: usize) {
+        #[cfg(target_arch = "wasm32")]
+        let block = block.max(1024); // Web Workers can miss a 128-frame callback's scheduling deadline.
         let block = block.max(self.queue.block.load(Ordering::Relaxed)) as u64;
         let want = 2 * (block + margin(block, self.rate));
         let Ok(mut e) = self.engine.lock() else { return };
