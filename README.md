@@ -373,6 +373,58 @@ Lemon Studio is a Cargo workspace of focused crates:
 | [`lemon-phaser`](plugins/lemon-phaser) | Lemon Phaser effect (VST3 + CLAP) |
 | [`citrus`](plugins/citrus) | Citrus instrument, a six-operator synthesizer (VST3 + CLAP) |
 
+## Web build (this fork)
+
+Desktop commands and native plugin hosting remain available. The browser build uses the same
+editor, engine and built-in sampler, Trio synth and EQ. Native VST2/VST3/CLAP binaries cannot
+run in a browser; unavailable plugins keep their saved state and references.
+
+On Linux, install the desktop build dependencies, Rust/rustup, Git, Node.js and Python 3, then:
+
+```sh
+tools/web-setup.sh
+tools/web-build.sh
+python3 tools/web-serve.py --directory dist/web --port 8080
+```
+
+Open `http://127.0.0.1:8080/`. The build also creates `dist/lemon-studio-web.zip`.
+The setup pins Emscripten 4.0.23, nightly-2025-11-06 and wasm-bindgen 0.2.129 for web;
+it does not change the desktop Rust default. Tool downloads live in `target/web-tools`.
+`CARGO_TARGET_DIR` can put build output and these tools on another disk.
+
+For deployment, extract the ZIP into the desired URL directory (including `/fl-studio/`).
+Serve over HTTPS with `Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp` on the page. The included `_headers` file supports
+hosts that read that format; configure equivalent response headers on other servers.
+All scripts, workers, fonts and DSP ship in the package. Audio needs a user gesture.
+
+**Files:** File → Open loads an FLP. Open project folder imports one FLP and its relative
+sample folders together, keeping identical filenames in different folders distinct.
+Select at most 256 MiB per import. Save downloads an FLP and stores the project and imported
+samples atomically in this browser. Reload restores the last successful Save. There is no
+autosave or version history. Browser storage belongs to this origin/profile and can be cleared
+by the browser; keep downloaded projects and original samples. FLP downloads reference sample
+files, so retain/import their folders when moving projects. WAV export downloads rendered audio.
+Storage/download errors leave the project marked unsaved. Browser MIDI devices and native plugin
+scanning are unavailable; the desktop paths are retained.
+
+For integration checks (build with `web-test` only for these checks):
+
+```sh
+npm ci
+npx playwright install chromium firefox
+tools/web-fixtures.sh
+tools/web-build.sh --features web-test
+node tools/web-check.mjs all
+WEB_BROWSER=firefox node tools/web-check.mjs all
+tools/web-build.sh # production package without test observations
+```
+
+The desktop Windows/Linux/macOS CI matrix is retained; the separate Web workflow builds and
+checks a ZIP under a nested URL. Local Linux and browser results do not substitute for the
+Windows and macOS CI runs before merging. See `vendor/*/WEB-PATCH.md` for the two dependency
+patches required by browser workers and audio contexts.
+
 ## Roadmap
 
 The roadmap is kept on the [Lemon Studio Discord server](https://discord.gg/yC2uCuGs3M), where every item is
