@@ -13,3 +13,7 @@ CLAUDE.md
 
 # macOS Finder metadata
 .DS_Store
+
+# Browser build output and test tooling
+/dist/
+/node_modules/

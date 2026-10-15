@@ -1,0 +1,7 @@
+{
+  "name": "lemon-studio-web-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {"test:web": "node tools/web-check.mjs all"},
+  "devDependencies": {"playwright": "1.64.1"}
+}
