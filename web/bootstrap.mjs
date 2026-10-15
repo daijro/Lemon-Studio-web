@@ -4,6 +4,7 @@ window.addEventListener('error', e => fail(e.error ?? e.message));
 window.addEventListener('unhandledrejection', e => fail(e.reason));
 try {
   if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') throw Error('This page requires Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp headers.');
+  if (typeof AudioContext === 'undefined' || typeof AudioWorkletNode === 'undefined') throw Error('This browser does not support AudioWorklet audio.');
   const app = await import('./os_app.js');
   await app.default();
   app.start();

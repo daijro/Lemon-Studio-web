@@ -1822,10 +1822,12 @@ impl App {
             self.state.message = Some("This slot's plugin is not hosted (no Lemon Studio version of it yet)".into());
             return;
         }
-        #[cfg(not(plugin_windows))]
+        #[cfg(all(not(plugin_windows), not(target_arch = "wasm32")))]
         {
             self.state.message = Some(crate::app::off_text(crate::app::PLUGIN_WINDOWS));
         }
+        #[cfg(target_arch = "wasm32")]
+        if let Err(error) = self.plugins.open_window(key) { self.state.message = Some(format!("Plugin: {error}")); }
         #[cfg(plugin_windows)]
         {
             let info = fx_info(&self.state.project, &self.state.mixer, key);
