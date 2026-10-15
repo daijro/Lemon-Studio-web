@@ -16,7 +16,7 @@ pub mod window_check;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_host::{Descriptor, Library, SharedPlugin};
 use os_engine::{SharedEffect, SharedInstrument};
@@ -36,6 +36,10 @@ pub struct Hosted {
     /// The channel or slot plugin it plays (`os_model::Id`): the control plane keeps it with them when rows or slots
     /// move under it (`App::follow_ids`). `Id::NONE` until the next tick takes the id of what is under its key.
     pub owner: os_model::Id,
+    #[cfg(target_arch = "wasm32")]
+    web_parent: Option<u32>,
+    #[cfg(target_arch = "wasm32")]
+    web_link: Option<os_hostlink::Link>,
     /// Processing time and voices, read without locking the instance (spec: ui/plugin-performance.md §3,
     /// audio/voices.md §5).
     pub meter: Option<Arc<os_host::Meter>>,
@@ -97,7 +101,10 @@ impl Hosted {
         Hosted {
             plugin,
             owner: os_model::Id::NONE,
-            meter,
+            #[cfg(target_arch = "wasm32")]
+            web_parent: None,
+            #[cfg(target_arch = "wasm32")]
+            web_link: None,            meter,
             name,
             #[cfg(plugin_windows)]
             window: None,
@@ -241,6 +248,7 @@ pub struct Plugins {
     rate: u32,
     /// Verdicts of the one-time child-process check a native plugin passes before its first load here (spec:
     /// plugins/fruity-abi.md "Crash containment"). `None`: no check (tests, where this program is the test harness).
+    #[cfg(not(target_arch = "wasm32"))]
     native_checks: Option<os_native::check::Checks>,
     /// Instances that went with their channel or slot, by its id: (an effect, the plugin's uid, its saved state).
     /// Only those whose channel or slot went (`keep`); an undo that brings it back hosts it again from here
@@ -311,6 +319,7 @@ fn linked(cell: &OnceLock<Option<Arc<os_clap::Library>>>, entry: *const std::ffi
 }
 
 /// Loads plugin file `path` of `format` under the crash guard (spec: plugins/plugin-formats.md, "Crash containment").
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_file(path: &Path, format: os_host::Format) -> Result<Arc<dyn Library>, String> {
     let load = || -> Result<Arc<dyn Library>, String> {
         match format {
@@ -323,12 +332,33 @@ pub fn load_file(path: &Path, format: os_host::Format) -> Result<Arc<dyn Library
     os_host::guard::catch(load).unwrap_or_else(|c| Err(format!("{}: crashed while loading ({})", path.display(), os_host::guard::describe(c))))
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn load_file(path: &Path, _: os_host::Format) -> Result<Arc<dyn Library>, String> {
+    Err(format!("{}: native plugin binaries cannot run in a browser; their state is kept in the project", path.display()))
+}
+
+pub fn native_enabled() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    { os_native::enabled() }
+    #[cfg(target_arch = "wasm32")]
+    { false }
+}
+
+pub fn native_settings_shown() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    { os_native::settings_shown() }
+    #[cfg(target_arch = "wasm32")]
+    { false }
+}
+
 /// The installed native plugin files (generators and effects), when the experimental native host is opted into
 /// (`os_native::enabled()`, Settings > Plugins or `OPENSTUDIO_NATIVE=1`): they are loaded through an unverified
 /// interop path (spec plugins/fruity-abi.md), so they stay off by default. Each is tried in a child process before
 /// its first load here (`Plugins::native_check`).
 pub fn native_files() -> Vec<PathBuf> {
-    if os_native::enabled() { os_native::dll_files() } else { Vec::new() }
+    #[cfg(not(target_arch = "wasm32"))]
+    if native_enabled() { return os_native::dll_files(); }
+    Vec::new()
 }
 
 /// A plugin file known from the scan cache: lists the cached plugins without loading the file, and loads it the first
@@ -371,8 +401,9 @@ pub fn format_name(f: os_host::Format) -> &'static str {
 impl Plugins {
     /// The built-in plugins only (what the app knows before the scan cache is read).
     pub fn builtins() -> Plugins {
+        #[cfg(not(target_arch = "wasm32"))]
         let native_checks = (!cfg!(test)).then(|| os_native::check::Checks::load(os_paths::user_file(NATIVE_CHECKS)));
-        Plugins { available: builtin(), effects: builtin_effects(), scale: 1.0, native_checks, ..Plugins::default() }
+        Plugins { available: builtin(), effects: builtin_effects(), scale: 1.0, #[cfg(not(target_arch = "wasm32"))] native_checks, ..Plugins::default() }
     }
 
     /// Takes a scan's results (spec: ui/plugin-manager.md §4, "Results"): plugins new to this run are appended, so the
@@ -414,6 +445,7 @@ impl Plugins {
 
     /// Native plugins load into this process only once a child process tried them (`os_native::check`): one that
     /// crashes, hangs or stops with an error there is refused with the reason.
+    #[cfg(not(target_arch = "wasm32"))]
     fn native_check(&mut self, desc: &Descriptor) -> Result<(), String> {
         if desc.format != os_host::Format::Native {
             return Ok(());
@@ -424,6 +456,14 @@ impl Plugins {
             os_native::check::Verdict::Fails(why) => Err(format!("{} can't load ({why})", desc.name)),
         }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    fn native_check(&mut self, desc: &Descriptor) -> Result<(), String> {
+        if desc.format == os_host::Format::Native { Err("Native plugins cannot run in a browser".into()) } else { Ok(()) }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn native_ready(&mut self, _: &Path) -> bool { false }
 
     /// Whether effect `index` can be created without waiting: anything but a native effect whose check has not run
     /// yet. That check is started in the background; ask again on a later tick.
@@ -438,6 +478,7 @@ impl Plugins {
         path.is_none_or(|p| self.native_ready(&p))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn native_ready(&mut self, dll: &std::path::Path) -> bool {
         let (Some(checks), Ok(program)) = (&mut self.native_checks, std::env::current_exe()) else { return true };
         checks.ready(&program, dll)
@@ -915,6 +956,27 @@ impl Plugins {
         false
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_window(&mut self, row:usize) -> Result<(),String> {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+        let h=self.hosted.get_mut(&row).ok_or("not a plugin channel")?;
+        if h.web_parent.is_some() { return Ok(()); }
+        let parent=NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
+        let mut p=h.plugin.lock().map_err(|_|"plugin busy")?;
+        p.open_editor(parent as usize as *mut std::ffi::c_void,self.scale)?;
+        h.web_link=os_hostlink::Link::connect(parent as isize);
+        if let Some(link)=&h.web_link { os_plugkit::web::set_pages(parent,link.pages.len()); }
+        h.web_parent=Some(parent);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn close_window(&mut self,row:usize) {
+        if let Some(h)=self.hosted.get_mut(&row) {
+            if let Ok(mut p)=h.plugin.try_lock() { p.close_editor(); h.web_parent=None; h.web_link=None; }
+        }
+    }
+
     /// Opens (or raises) row `row`'s plugin window.
     #[cfg(plugin_windows)]
     pub fn open_window(&mut self, row: usize, info: ChannelInfo) -> Result<(), String> {
@@ -1102,6 +1164,8 @@ impl Plugins {
 
     /// Closes row `row`'s plugin window when it is open; returns whether it was.
     pub fn close_if_open(&mut self, row: usize) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        if self.hosted.get(&row).is_some_and(|h| h.web_parent.is_some()) { self.close_window(row); return true; }
         #[cfg(plugin_windows)]
         if self.hosted.get(&row).is_some_and(|h| h.window.is_some()) {
             self.close_window(row);
@@ -1137,7 +1201,22 @@ impl Plugins {
                 _ => {}
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        for (parent,cmd,arg) in os_hostlink::take_host_messages() {
+            if let Some((&row,_))=self.hosted.iter().find(|(_,h)|h.web_parent==Some(parent as u32)) {
+                match cmd {
+                    os_hostlink::Cmd::Note => { let(k,v,on)=os_hostlink::unpack_note(arg); out.push(Request::Note(row,k,v,on)); }
+                    os_hostlink::Cmd::Automate => out.push(Request::Automate(row,arg as usize)),
+                    _=>{}
+                }
+            }
+        }
         for (&row, h) in &mut self.hosted {
+            #[cfg(target_arch = "wasm32")]
+            if let Some(parent)=h.web_parent {
+                if os_plugkit::web::is_closed(parent) { close.push(row); }
+                if let (Some(link),Some(page))=(&mut h.web_link,os_plugkit::web::take_page(parent)) { link.set_page(page); }
+            }
             let look = h.due(h.seen);
             let mut menu: Option<(os_host::Menu, (i32, i32))> = None;
             if let Some(mut p) = look.and_then(|_| h.plugin.try_lock().ok()) {
@@ -1246,7 +1325,7 @@ impl Plugins {
                 out.push(Request::PluginMenu(row, m, at));
             }
         }
-        #[cfg(plugin_windows)]
+        #[cfg(any(plugin_windows, target_arch = "wasm32"))]
         for row in close {
             self.close_window(row);
         }
@@ -1293,6 +1372,8 @@ impl Drop for Hosted {
                 p.close_editor();
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        if self.web_parent.is_some() { if let Ok(mut p)=self.plugin.lock() { p.close_editor(); } }
         let plugin = self.plugin.clone();
         let _ = RETIRED.try_with(|r| r.borrow_mut().push(plugin));
     }
@@ -2003,7 +2084,7 @@ mod tests {
     use super::*;
     use std::ffi::c_void;
     use std::sync::Mutex;
-    use std::time::{Duration, Instant};
+    use crate::time::{Duration, Instant};
     use windows_sys::Win32::Foundation::{HWND, RECT};
     use windows_sys::Win32::Graphics::Gdi::*;
     use windows_sys::Win32::Storage::Xps::PrintWindow;
@@ -2020,7 +2101,7 @@ mod tests {
                 }
             }
             plugins.idle(|_| None);
-            std::thread::sleep(Duration::from_millis(10));
+            crate::thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -3036,7 +3117,7 @@ mod tests {
         for _ in 0..20 {
             // The processed sample is built in the background: wait for it.
             i.process(48000, &mut l, &mut r);
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            crate::thread::sleep(crate::time::Duration::from_millis(5));
         }
         i.note_on(0, 60, 100.0 / 128.0);
         let (mut l, mut r) = (vec![0.0f32; 480], vec![0.0f32; 480]);
@@ -3305,7 +3386,7 @@ mod tests {
             assert!(fx.set_param(id, 0.3));
             assert!(fx.activate(48000));
             fx.idle();
-            std::thread::sleep(Duration::from_millis(60));
+            crate::thread::sleep(Duration::from_millis(60));
             fx.idle();
         }
         let (ch_state, fx_state) = (a.plugins.state(row).unwrap(), a.plugins.state(fx_key(3, 2)).unwrap());
@@ -3443,7 +3524,7 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         let audio = {
             let stop = stop.clone();
-            std::thread::spawn(move || {
+            crate::thread::spawn(move || {
                 let (mut l, mut r) = (vec![0.0f32; 512], vec![0.0f32; 512]);
                 let mut n = 0u64;
                 while !stop.load(Ordering::Relaxed) {
@@ -3453,7 +3534,7 @@ mod tests {
                     }
                     fx.lock().unwrap().process_fx(48000, &mut l, &mut r);
                     n += 512;
-                    std::thread::sleep(Duration::from_millis(5));
+                    crate::thread::sleep(Duration::from_millis(5));
                 }
                 l.iter().chain(&r).all(|s| s.is_finite())
             })
@@ -3570,7 +3651,7 @@ mod tests {
             if a.state.pending_plugin.is_none() {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(20));
+            crate::thread::sleep(Duration::from_millis(20));
         }
         assert!(a.state.hosted_rows.contains(&row), "hosted: {:?}", a.state.message);
         assert_eq!(a.plugins.descriptor(row).map(|d| d.format), Some(os_host::Format::Native));
@@ -3580,12 +3661,12 @@ mod tests {
         a.state.project.patterns[0].notes = vec![os_model::Note { length: 96, key: 60, ..os_model::Note::step(channel, 0) }];
         let path = std::env::temp_dir().join(format!("openstudio-native-gen-{}.wav", std::process::id()));
         a.transport.export(&a.state.project, os_engine::PlayMode::Pattern(1), 48000, crate::export::Job::wav(&path));
-        let t0 = std::time::Instant::now();
+        let t0 = crate::time::Instant::now();
         let secs = loop {
             match a.transport.export_status() {
                 crate::transport::Export::Done(r) => break r.expect("export").0,
                 _ if t0.elapsed() > Duration::from_secs(60) => panic!("export did not finish"),
-                _ => std::thread::sleep(Duration::from_millis(10)),
+                _ => crate::thread::sleep(Duration::from_millis(10)),
             }
         };
         let bytes = std::fs::read(&path).expect("file written");
@@ -3627,7 +3708,7 @@ mod tests {
         }
         let inst = pl.instruments()[0].1.clone();
         // Held for half a second, then two seconds to end: (peak while held, peak in the last 100 ms, all finite).
-        let audio = std::thread::spawn(move || {
+        let audio = crate::thread::spawn(move || {
             let (mut l, mut r) = (vec![0.0f32; 480], vec![0.0f32; 480]);
             let (mut held, mut tail, mut finite) = (0.0f32, 0.0f32, true);
             for block in 0..250 {
@@ -3648,7 +3729,7 @@ mod tests {
                 if block >= 240 {
                     tail = tail.max(peak);
                 }
-                std::thread::sleep(Duration::from_millis(2));
+                crate::thread::sleep(Duration::from_millis(2));
             }
             (held, tail, finite)
         });
@@ -3704,10 +3785,10 @@ mod tests {
         assert!(native(&baseline.available).is_empty(), "native generators must not appear without the opt-in");
     }
     /// An instance that records the thread it is destroyed on.
-    struct Tracked(os_host::Descriptor, Arc<Mutex<Option<std::thread::ThreadId>>>);
+    struct Tracked(os_host::Descriptor, Arc<Mutex<Option<crate::thread::ThreadId>>>);
     impl Drop for Tracked {
         fn drop(&mut self) {
-            *self.1.lock().unwrap() = Some(std::thread::current().id());
+            *self.1.lock().unwrap() = Some(crate::thread::current().id());
         }
     }
     impl os_engine::Instrument for Tracked {
@@ -3782,10 +3863,10 @@ mod tests {
         assert_eq!(retired_count(), 1);
         sweep_retired();
         assert_eq!(retired_count(), 1, "kept while the engine holds it");
-        std::thread::spawn(move || drop(engine)).join().unwrap();
+        crate::thread::spawn(move || drop(engine)).join().unwrap();
         assert_eq!(*gone.lock().unwrap(), None, "not destroyed by the engine's release");
         pl.idle(|_| None);
-        assert_eq!(*gone.lock().unwrap(), Some(std::thread::current().id()));
+        assert_eq!(*gone.lock().unwrap(), Some(crate::thread::current().id()));
         assert_eq!(retired_count(), 0);
     }
     /// An effect whose processing faults once `FAULT` is set, as one with a bad pointer does.
@@ -3852,7 +3933,7 @@ mod tests {
         fault.store(true, std::sync::atomic::Ordering::Relaxed);
         // The engine's thread runs into the crash.
         let engine = fx.clone();
-        std::thread::spawn(move || engine.lock().unwrap().process_fx(48000, &mut [0.5; 8], &mut [0.5; 8])).join().unwrap();
+        crate::thread::spawn(move || engine.lock().unwrap().process_fx(48000, &mut [0.5; 8], &mut [0.5; 8])).join().unwrap();
         let told: Vec<String> = pl.idle(|_| None).into_iter().filter_map(|r| if let Request::Stopped(k, t) = r { Some(format!("{k}: {t}")) } else { None }).collect();
         assert_eq!(told, [format!("{key}: Faulty stopped after a memory error: its slot passes the sound through. Save your project and restart Lemon Studio to use it again")]);
         assert!(!pl.idle(|_| None).iter().any(|r| matches!(r, Request::Stopped(..))), "told once");
