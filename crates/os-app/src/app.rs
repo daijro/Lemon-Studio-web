@@ -1485,7 +1485,7 @@ impl App {
     /// mode, one pass of the current pattern in PAT mode) with every hosted instrument and effect to a 32-bit float WAV
     /// file, at the output device's rate. Playback stops; a progress panel shows until the file is written.
     // spec: audio/export.md
-    fn export_wav(&mut self) {
+    pub(crate) fn export_wav(&mut self) {
         if self.export.is_some() {
             return;
         }
@@ -1525,6 +1525,13 @@ impl App {
         let p = crate::rack::play_project(&self.state);
         let rate = Transport::device_rate().unwrap_or(44100);
         let name = target.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        #[cfg(target_arch = "wasm32")]
+        if !self.plugins.try_set_offline(true) {
+            crate::web::files::retry_export();
+            self.state.message=Some("Waiting for instruments before exporting…".into());
+            return self.invalidate();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         self.plugins.set_offline(true);
         self.transport.export(&p, self.play_mode(), rate, target);
         self.export = Some((name, 0.0));
@@ -1541,6 +1548,9 @@ impl App {
             }
             crate::transport::Export::Done(r) => {
                 self.export = None;
+                #[cfg(target_arch = "wasm32")]
+                if !self.plugins.try_set_offline(false) { crate::web::files::retry_online(); }
+                #[cfg(not(target_arch = "wasm32"))]
                 self.plugins.set_offline(false);
                 self.state.message = Some(match r {
                     #[cfg(target_arch = "wasm32")]
