@@ -12,7 +12,10 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use crate::guard::{self, Module};
 use crate::{Attention, Descriptor, HostedEffect, Instrument, Meter, ParamEvent, ParamInfo, Plugin, SharedPlugin};

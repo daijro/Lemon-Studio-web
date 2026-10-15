@@ -64,13 +64,18 @@ fn kind_of(features: &[String]) -> os_host::Kind {
 }
 
 /// A loaded `.clap` file.
+#[cfg(not(target_arch = "wasm32"))]
+type NativeModule = libloading::Library;
+#[cfg(target_arch = "wasm32")]
+type NativeModule = std::convert::Infallible;
+
 pub struct Library {
     entry: *const clap_plugin_entry,
     factory: *const clap_plugin_factory,
     pub path: PathBuf,
     pub plugins: Vec<Descriptor>,
     /// `None` for a plugin linked into this program ([`Library::from_entry`]).
-    _lib: Option<libloading::Library>,
+    _lib: Option<NativeModule>,
 }
 
 // SAFETY: the entry and factory are immutable tables; CLAP allows calling the factory from any thread.
@@ -82,7 +87,13 @@ unsafe fn cstr(p: *const c_char) -> String {
 }
 
 impl Library {
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(path: &Path) -> Result<Arc<Library>, String> {
+        Err(format!("{}: native plugin binaries cannot run in a browser", path.display()))
+    }
+
     /// Loads plugin `path`: a `.clap` file, or on macOS a `.clap` bundle (its `init` gets the bundle's path).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &Path) -> Result<Arc<Library>, String> {
         unsafe {
             let lib = os_host::load_module(&module_file(path))?;
@@ -100,7 +111,7 @@ impl Library {
         unsafe { Self::open(entry as *const clap_plugin_entry, path, None) }
     }
 
-    unsafe fn open(entry: *const clap_plugin_entry, path: &Path, lib: Option<libloading::Library>) -> Result<Arc<Library>, String> {
+    unsafe fn open(entry: *const clap_plugin_entry, path: &Path, lib: Option<NativeModule>) -> Result<Arc<Library>, String> {
         unsafe {
             if entry.is_null() || !clap_version_is_compatible((*entry).clap_version) {
                 return Err(format!("{}: incompatible CLAP version", path.display()));
@@ -152,6 +163,7 @@ impl Drop for Library {
             });
         }
         if guard.crashed().is_some() {
+            #[cfg(not(target_arch = "wasm32"))]
             std::mem::forget(self._lib.take());
         }
     }

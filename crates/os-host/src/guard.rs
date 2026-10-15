@@ -251,7 +251,10 @@ pub fn watch_windows(now: bool) {
 mod windows {
     use super::*;
     use std::cell::Cell;
-    use std::time::{Duration, Instant};
+    #[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
     use windows_sys::core::BOOL;
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;

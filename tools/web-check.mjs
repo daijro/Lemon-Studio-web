@@ -5,7 +5,7 @@ import { resolve, sep } from 'node:path';
 import { chromium } from 'playwright';
 
 const mode = process.argv[2] ?? 'dsp';
-assert.equal(mode, 'dsp', 'Only the DSP milestone is implemented so far');
+assert.ok(['dsp', 'plugins'].includes(mode));
 const root = resolve(process.env.DSP_BUILD_DIR ?? 'target/web-dsp');
 const worklet = `import { initSync, stretch_probe } from './stretch_probe.js';
 registerProcessor('stretch-parity', class extends AudioWorkletProcessor {
@@ -42,6 +42,24 @@ try {
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') console.error('Browser:', m.text()); });
   await page.goto(`http://127.0.0.1:${server.address().port}/fl-studio/`);
+  if (mode === 'plugins') {
+    const result = await page.evaluate(async () => {
+      const m = await import('./builtin_probe_web.js');
+      await m.default();
+      const result = JSON.parse(m.builtin_probe());
+      m.start_worker_probe();
+      const deadline = performance.now() + 15000;
+      while (!m.worker_probe_done()) {
+        if (performance.now() > deadline) throw Error('Worker did not complete');
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      return result;
+    });
+    const native = JSON.parse(await readFile(resolve(root, 'plugins-native.json')));
+    assert.deepEqual(result, native);
+    assert.deepEqual(errors, []);
+    console.log('PASS: built-in plugin lifecycle and native-compatible parameters/state');
+  } else {
   const result = await page.evaluate(async () => {
     const {default: init, stretch_probe} = await import('./stretch_probe.js');
     const wasm = await init();
@@ -89,6 +107,7 @@ try {
   });
   assert.match(loadError, /failed to fetch Wasm: 404/);
   console.log('PASS: native/browser DSP parity, reset, instance lifecycle, memory growth, missing-module error and AudioWorklet execution');
+  }
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
