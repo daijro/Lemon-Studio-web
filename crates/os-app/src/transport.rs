@@ -815,9 +815,16 @@ fn export(project: &Project, mode: PlayMode, rate: u32, path: &std::path::Path, 
         }
     }
     drop(e);
-    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut w = std::io::BufWriter::new(file);
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut w = std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?);
+    #[cfg(target_arch = "wasm32")]
+    let mut w=Vec::new();
     os_engine::wav::write_f32_stereo(&mut w, rate, &audio).and_then(|_| std::io::Write::flush(&mut w)).map_err(|e| format!("{}: {e}", path.display()))?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let name=path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        crate::web::audio::dispatch(move ||crate::web::files::download_bytes(&name,&w,"audio/wav"))?;
+    }
     Ok(audio.len() as f64 / 2.0 / f64::from(rate))
 }
 

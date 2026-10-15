@@ -45,3 +45,9 @@ export function menu(id,json){const o=overlay(id);if(!o)return;const append=(row
 export function type_in(id,text){const o=overlay(id);if(!o)return;const form=document.createElement('form'),input=document.createElement('input'),ok=document.createElement('button');input.value=text;input.ariaLabel='Parameter value';ok.textContent='Apply';form.append(input,ok);o.d.append(form);form.onsubmit=e=>{e.preventDefault();o.reply(input.value);};o.d.showModal();input.focus();input.select();}
 
 export function pages(id,count){const s=windows.get(id);if(!s)return;for(let i=0;i<count;i++){const b=document.createElement("button");b.textContent=i===0?"Instrument / effect":"Envelope";b.onclick=()=>s.callback(id,"page",i,0,0,0);b.style.cssText="color:#ddd;background:#454d50;border:1px solid #202729;border-radius:3px;padding:2px 8px";s.bar.insertBefore(b,s.bar.lastElementChild);}}
+
+export function download_sample(bytes){
+  const url=URL.createObjectURL(new Blob([Uint8Array.from(bytes)],{type:'audio/wav'})),link=document.createElement('a');
+  link.href=url;link.download='sample.wav';link.hidden=true;
+  try{document.body.append(link);link.click();}finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+}
