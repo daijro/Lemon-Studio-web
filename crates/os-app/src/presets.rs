@@ -428,4 +428,10 @@ mod tests {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn save_as(_app: &mut App, _: usize) -> Option<String> { Some("Browser preset export is being connected".into()) }
+fn save_as(app:&mut App,key:usize)->Option<String> {
+    let h=header(app,key)?;
+    let state=app.plugins.state(key)?;
+    Some(match crate::web::files::download_bytes(&format!("{}.{EXT}",h.plugin),&encode(&h,&state),"application/octet-stream") {
+        Ok(())=>"Preset download started".into(),Err(e)=>format!("Preset download failed: {e}"),
+    })
+}

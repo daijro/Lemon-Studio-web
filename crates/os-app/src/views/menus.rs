@@ -123,6 +123,8 @@ const FILE: &[Item] = &[
     it("Revert to last backup", ""),
     SEP,
     it("Exit", "").on(),
+    #[cfg(target_arch = "wasm32")]
+    it("Open project folder...", "").on(),
 ];
 
 const EDIT: &[Item] = &[it("Undo", "Ctrl+Z")];
