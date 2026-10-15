@@ -6,7 +6,7 @@
 //! is within the song (SONG mode) or the pattern (PAT mode), and a way to move it.
 
 use std::borrow::Cow;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_ui::Rect;
 

@@ -17,7 +17,7 @@ use crate::views::browser::{self as view, Item};
 /// Mouse travel before a press on an item becomes a drag (spec §3).
 const DRAG_START: f32 = 4.0;
 /// How long a clicked sample plays (spec §7).
-const PREVIEW_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+const PREVIEW_LIMIT: crate::time::Duration = crate::time::Duration::from_secs(5);
 
 impl App {
     /// Browser actions; returns whether `a` was one.

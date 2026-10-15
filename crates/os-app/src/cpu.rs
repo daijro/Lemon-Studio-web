@@ -9,7 +9,7 @@
 // spec: ui/main-window.md §13 (CPU panel), audio/voices.md §5
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// Readings kept for the load graph (one 2 px column each, newest on the right).
 pub const HISTORY: usize = 37;

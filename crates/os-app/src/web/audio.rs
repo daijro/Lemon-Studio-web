@@ -1,0 +1,20 @@
+// Copyright (C) 2026 ItsAlphaNeon. Lemon Studio: https://github.com/ItsAlphaNeon/Lemon-Studio
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// This code, in its entirety, is NOT to be used as part of the ArtCraft suite: not this file, not any part of it,
+// and not any other part of Lemon Studio.
+
+//! Browser audio resources are created on the page; sequencing and feeding stay on their existing workers.
+use std::sync::{LazyLock, mpsc};
+static CALLS: LazyLock<crossbeam::queue::SegQueue<Box<dyn FnOnce() + Send>>> = LazyLock::new(Default::default);
+
+pub fn dispatch<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> T {
+    if web_sys::window().is_some() { return call(); }
+    let (tx, rx) = mpsc::channel();
+    CALLS.push(Box::new(move || { let _ = tx.send(call()); }));
+    crate::wake_ui();
+    // Only the control worker waits; the page's event loop remains free to initialize AudioWorklets.
+    rx.recv().expect("browser audio dispatcher closed")
+}
+
+pub fn poll() { while let Some(call) = CALLS.pop() { call(); } }
