@@ -80,13 +80,11 @@ fn event(id: u32, kind: String, x: f64, y: f64, value: f64, mods: f64) {
                 Request::Download(bytes, tx) => { let _ = tx.send(download_sample(&bytes).map_err(|e|format!("{e:?}"))); }
                 Request::File(save, tx) => {
                     if save { let _ = tx.send(Some("/exports/sample.wav".into())); }
-                    else { wasm_bindgen_futures::spawn_local(async move {
+                    else { let state=s.clone(); wasm_bindgen_futures::spawn_local(async move {
                         let result = if let Some(f) = rfd::AsyncFileDialog::new().add_filter("Audio", &["wav","flac","ogg","mp3","aiff"]).pick_file().await {
                             let bytes=f.read().await;
-                            if let Some(name)=os_paths::fs::relative_path(&f.file_name()).ok().filter(|_|bytes.len()<=256*1024*1024) {
-                                let path=format!("/imports/plugin-{:.0}-{id}/{}",js_sys::Date::now(),name.display());
-                                os_paths::fs::insert(path.clone().into(),bytes);Some(path)
-                            } else { None }
+                            if state.closed.load(Ordering::Acquire) { None }
+                            else { os_paths::fs::import(&f.file_name(),bytes).ok().map(|p|p.to_string_lossy().into_owned()) }
                         } else { None };
                         let _ = tx.send(result);
                     }); }

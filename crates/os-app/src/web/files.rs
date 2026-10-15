@@ -72,6 +72,10 @@ thread_local! {
     static PREFS_CHECK:Cell<f64>=const{Cell::new(0.0)};
     static RESTORED:RefCell<Option<JsValue>>=const{RefCell::new(None)};
     static SAVING:Cell<bool>=const{Cell::new(false)};
+    static EXPORT_PENDING:Cell<bool>=const{Cell::new(false)};
+    static ONLINE_PENDING:Cell<bool>=const{Cell::new(false)};
+    static SAVE_PENDING:Cell<bool>=const{Cell::new(false)};
+    static SAVE_PLUGINS:RefCell<Option<std::collections::BTreeMap<usize, (os_host::Descriptor, Option<Vec<u8>>)>>> = const { RefCell::new(None) };
     static PREFS:RefCell<String>=const{RefCell::new(String::new())};
 }
 static COMPLETED: LazyLock<crossbeam::queue::SegQueue<Completion>> =
@@ -89,18 +93,24 @@ fn complete(value: Completion) {
     COMPLETED.push(value);
     crate::wake_ui();
 }
+pub fn retry_export() { EXPORT_PENDING.with(|p|p.set(true)); }
+pub fn retry_online() { ONLINE_PENDING.with(|p|p.set(true)); }
 pub fn changed_project() {
+    EXPORT_PENDING.with(|p|p.set(false));
+    ONLINE_PENDING.with(|p|p.set(false));
+    SAVE_PENDING.with(|p|p.set(false));
     GENERATION.with(|g| g.set(g.get().wrapping_add(1)));
 }
 fn current() -> u64 {
     GENERATION.with(Cell::get)
 }
-fn states(app: &App) -> Vec<(usize, Option<Vec<u8>>)> {
-    app.plugins
-        .hosted
-        .keys()
-        .map(|&row| (row, app.plugins.state(row)))
-        .collect()
+pub fn saved_plugin(key: usize) -> Option<(os_host::Descriptor, Option<Vec<u8>>)> {
+    SAVE_PLUGINS.with_borrow(|p|p.as_ref()?.get(&key).cloned())
+}
+fn states(app: &App) -> Option<Vec<(usize, Option<Vec<u8>>)>> {
+    app.plugins.hosted.iter().map(|(&row, h)| {
+        Some((row, h.plugin.try_lock().ok()?.save_state()))
+    }).collect()
 }
 
 pub async fn initialize() {
@@ -152,7 +162,7 @@ fn imported(value: JsValue, stored: bool) -> Result<Vec<Imported>, String> {
         }
         let array = js_sys::Uint8Array::new(&bytes);
         size += array.length() as usize;
-        if size > 256 * 1024 * 1024 {
+        if size > os_paths::fs::MAX_IMPORT_BYTES {
             return Err("Import exceeds the 256 MiB browser limit".into());
         }
         files.push(Imported {
@@ -223,7 +233,22 @@ pub fn save(app: &mut App) {
         app.state.message = Some("A browser save is still in progress".into());
         return;
     }
-    let save = match app.project_bytes() {
+    let captured: Option<std::collections::BTreeMap<_,_>> = app.plugins.hosted.iter().map(|(&key,h)| {
+        let p=h.plugin.try_lock().ok()?;
+        Some((key,(p.desc().clone(),p.save_state())))
+    }).collect();
+    let Some(captured)=captured else {
+        SAVE_PENDING.with(|p|p.set(true));
+        app.state.message=Some("Waiting for instruments before saving…".into());
+        return;
+    };
+    SAVE_PENDING.with(|p|p.set(false));
+    let old_states=captured.iter().map(|(&key,(_,state))|(key,state.clone())).collect();
+    // Serialize one captured set of plugin states without locking the audio worker again.
+    SAVE_PLUGINS.with_borrow_mut(|p|*p=Some(captured));
+    let result=app.project_bytes();
+    SAVE_PLUGINS.with_borrow_mut(|p|*p=None);
+    let save = match result {
         Ok(save) => save,
         Err(e) => {
             app.state.message = Some(format!("Save failed: {e}"));
@@ -234,7 +259,7 @@ pub fn save(app: &mut App) {
         .state
         .path
         .clone()
-        .unwrap_or_else(|| PathBuf::from("Untitled.flp"));
+        .unwrap_or_else(|| os_paths::fs::root().join("Untitled.flp"));
     let name = target.file_name().unwrap_or_default().to_string_lossy();
     if let Err(e) = download_bytes(&name, &save.bytes, "application/octet-stream") {
         app.state.message = Some(format!("Download failed: {e}"));
@@ -263,7 +288,7 @@ pub fn save(app: &mut App) {
         current(),
         app.state.project.clone(),
         app.state.tempo,
-        states(app),
+        old_states,
     );
     let request = persist(&snapshot);
     SAVING.with(|s| s.set(true));
@@ -280,6 +305,9 @@ pub fn save(app: &mut App) {
 }
 
 pub fn poll(app: &mut App) {
+    if ONLINE_PENDING.with(Cell::get) && app.plugins.try_set_offline(false) { ONLINE_PENDING.with(|p|p.set(false)); }
+    if EXPORT_PENDING.with(|p|p.replace(false)) { app.export_wav(); }
+    if SAVE_PENDING.with(Cell::get) { save(app); app.invalidate(); }
     if let Some(snapshot) = RESTORED.with_borrow_mut(Option::take) {
         if let Some(prefs) = get(&snapshot, "preferences").as_string() {
             apply_preferences(app, &prefs);
@@ -301,13 +329,18 @@ pub fn poll(app: &mut App) {
                 app.invalidate();
             }
             Completion::Save(generation, save, project, tempo, old_states, target, result) => {
+                // The browser UI cannot block while the audio worker owns an instrument.
+                let Some(current_states) = states(app) else {
+                    COMPLETED.push(Completion::Save(generation, save, project, tempo, old_states, target, result));
+                    break;
+                };
                 SAVING.with(|s| s.set(false));
                 match result {
                     Ok(())
                         if generation == current()
                             && app.state.project == project
                             && app.state.tempo == tempo
-                            && states(app) == old_states =>
+                            && current_states == old_states =>
                     {
                         let message = if save.lost.is_empty() {
                             "Saved in this browser; download started".into()
@@ -335,9 +368,7 @@ pub fn poll(app: &mut App) {
                 app.invalidate();
             }
             Completion::Sample(generation, row, channel, path, result) => {
-                if generation != current() || app.state.project.channels.get(row) != Some(&channel)
-                {
-                    os_paths::fs::remove(&path);
+                if generation != current() || app.state.project.channels.get(row) != Some(&channel) {
                     continue;
                 }
                 let result = result.and_then(|sample| {
@@ -353,7 +384,7 @@ pub fn poll(app: &mut App) {
                     Ok(())
                 });
                 if let Err(e) = result {
-                    os_paths::fs::remove(&path);
+                    os_paths::fs::remove(&os_paths::fs::resolve(&path.to_string_lossy()));
                     app.state.message = Some(format!("Import failed: {e}"));
                 }
                 app.invalidate();
@@ -448,7 +479,7 @@ fn apply_import(
         }
         Import::Sample(row) => {
             let file = files.into_iter().next().unwrap();
-            let path = prefix.join(file.path);
+            let name = file.path;
             let channel = channel.ok_or("The destination channel no longer exists")?;
             if app.state.project.channels.get(row) != Some(&channel) {
                 return Err("The destination channel changed during import".into());
@@ -456,10 +487,11 @@ fn apply_import(
             if !channel.kind.is_sampler() {
                 return Err("This channel is not a sampler".into());
             }
-            os_paths::fs::insert(path.clone(), file.bytes);
+            let path = os_paths::fs::import(&name.to_string_lossy(), file.bytes).map_err(|e| e.to_string())?;
             let generation = current();
+            let physical = os_paths::fs::resolve(&path.to_string_lossy());
             wasm_thread::spawn(move || {
-                let result = os_engine::sample::load_shared(&path).map_err(|e| e.to_string());
+                let result = os_engine::sample::load_shared(&physical).map_err(|e| e.to_string());
                 complete(Completion::Sample(generation, row, channel, path, result));
             });
         }
@@ -483,7 +515,7 @@ fn restore_project(app: &mut App, snapshot: &JsValue) -> Result<(), String> {
         return Err("Missing project bytes".into());
     }
     let array = js_sys::Uint8Array::new(&project);
-    if array.length() > 256 * 1024 * 1024 {
+    if array.length() as usize > os_paths::fs::MAX_IMPORT_BYTES {
         return Err("Stored project is too large".into());
     }
     let bytes = array.to_vec();
