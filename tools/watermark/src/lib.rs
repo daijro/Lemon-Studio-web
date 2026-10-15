@@ -107,7 +107,8 @@ mod tests {
     }
 
     /// The source files under `dir`, leaving out what `.gitignore` keeps out of the repository: build output (`target`,
-    /// `target-*`) and `.claude`, which holds worktrees (whole copies of the repository); and `.git`.
+    /// `target-*`) and `.claude`, which holds worktrees (whole copies of the repository); and `.git`. Vendored dependencies retain their own
+    /// copyright/license headers. Browser output, installed dependencies and execution scratch are not project sources.
     fn sources(dir: &Path, out: &mut Vec<(PathBuf, Style)>) {
         let list = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot list {}: {e}", dir.display()));
         for entry in list {
@@ -116,7 +117,7 @@ mod tests {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                if !matches!(&*name, ".git" | ".claude" | "target") && !name.starts_with("target-") {
+                if !matches!(&*name, ".git" | ".claude" | ".superpowers" | "target" | "dist" | "node_modules" | "vendor") && !name.starts_with("target-") {
                     sources(&path, out);
                 }
             } else if let Some(style) = style(&path) {
