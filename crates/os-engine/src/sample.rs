@@ -307,6 +307,8 @@ impl SampleLibrary {
     }
 
     pub fn resolve(&self, project_path: &str) -> Option<PathBuf> {
+        #[cfg(target_arch = "wasm32")]
+        return Some(os_paths::fs::resolve(project_path));
         const FACTORY: &str = "%FLStudioFactoryData%";
         const DATA: &str = "%FLStudioData%";
         let rel = |rest: &str| rest.trim_start_matches(['\\', '/']).replace('\\', std::path::MAIN_SEPARATOR_STR);

@@ -1248,7 +1248,7 @@ pub fn run(app: &mut App, c: RCmd) -> Option<String> {
         RCmd::MoveSel(d) => move_selected(app, d),
         RCmd::Sort(by) => sort(app, by),
         #[cfg(target_arch = "wasm32")]
-        RCmd::LoadSample(r) => crate::web::pick(crate::web::Import::Sample(r)),
+        RCmd::LoadSample(r) => crate::web::pick(app,crate::web::Import::Sample(r)),
         #[cfg(not(target_arch = "wasm32"))]
         RCmd::LoadSample(r) => {
             if let Some(p) = crate::dialog::modal(|| rfd::FileDialog::new().add_filter("Audio", &["wav", "mp3", "flac", "ogg", "aif", "aiff"]).pick_file()) {

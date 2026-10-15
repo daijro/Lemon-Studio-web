@@ -19,6 +19,9 @@
 pub use std::fs;
 #[cfg(target_arch = "wasm32")]
 pub mod fs;
+#[cfg(test)]
+#[path="fs.rs"]
+mod browser_fs;
 
 use std::path::PathBuf;
 

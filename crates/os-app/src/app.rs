@@ -973,6 +973,13 @@ pub struct App {
 }
 
 /// Window-level requests the shell must carry out after an event.
+pub(crate) struct PreparedSave {
+    pub file: os_flp::FlpFile,
+    pub project: Project,
+    pub bytes: Vec<u8>,
+    pub lost: Vec<&'static str>,
+}
+
 impl App {
     pub fn new(path: Option<PathBuf>) -> App {
         let transport = Transport::new(os_engine::SampleLibrary::default_factory_dir());
@@ -1118,11 +1125,15 @@ impl App {
     }
 
     pub fn open(&mut self, path: PathBuf) {
+        let bytes=std::fs::read(&path).map_err(|error|error.to_string());
+        self.open_bytes(path,bytes);
+    }
+
+    pub(crate) fn open_bytes(&mut self, path: PathBuf, bytes: Result<Vec<u8>,String>) {
         // A project in the layout used before version 24.2 gets a dialog that says what to do (spec:
         // flp/events/channels.md "Version scope"), not just a line in the hint bar.
         let mut legacy = None;
-        let result = std::fs::read(&path)
-            .map_err(|e| e.to_string())
+        let result = bytes
             .and_then(|b| os_flp::FlpFile::parse(&b).map_err(|e| e.to_string()))
             .and_then(|f| match os_flp::project::load(&f) {
                 Ok(p) => Ok((f, p)),
@@ -1147,6 +1158,8 @@ impl App {
         }
         match result {
             Ok((file, project)) => {
+                #[cfg(target_arch = "wasm32")]
+                { crate::web::files::changed_project(); os_paths::fs::set_root(path.parent().unwrap_or(std::path::Path::new("")).into()); }
                 self.transport.stop();
                 self.reset_hosted();
                 let s = &mut self.state;
@@ -1198,7 +1211,6 @@ impl App {
     /// mode, one pass of the current pattern in PAT mode) with every hosted instrument and effect to a 32-bit float WAV
     /// file, at the output device's rate. Playback stops; a progress panel shows until the file is written.
     // spec: audio/export.md
-    #[cfg(not(target_arch = "wasm32"))]
     fn export_wav(&mut self) {
         if self.export.is_some() {
             return;
@@ -1214,11 +1226,17 @@ impl App {
             return self.invalidate();
         }
         let stem = self.state.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "Untitled".to_string(), |n| n.to_string_lossy().into_owned());
+        #[cfg(target_arch = "wasm32")]
+        let mut target=PathBuf::from(format!("{stem}.wav"));
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut target={
         let mut dlg = rfd::FileDialog::new().add_filter("WAV audio", &["wav"]).set_file_name(format!("{stem}.wav"));
         if let Some(d) = self.state.path.as_ref().and_then(|p| p.parent()) {
             dlg = dlg.set_directory(d);
         }
-        let Some(mut target) = crate::dialog::save_file(dlg) else { return };
+        let Some(target) = crate::dialog::save_file(dlg) else { return };
+            target
+        };
         if target.extension().is_none() {
             target.set_extension("wav");
         }
@@ -1242,6 +1260,9 @@ impl App {
                 self.export = None;
                 self.plugins.set_offline(false);
                 self.state.message = Some(match r {
+                    #[cfg(target_arch = "wasm32")]
+                    Ok(secs) => format!("WAV download started: {name} ({}:{:02})", (secs / 60.0) as u32, (secs % 60.0) as u32),
+                    #[cfg(not(target_arch = "wasm32"))]
                     Ok(secs) => format!("Exported {}:{:02} to {name}", (secs / 60.0) as u32, (secs % 60.0) as u32),
                     Err(e) => format!("Export failed: {e}"),
                 });
@@ -1252,6 +1273,20 @@ impl App {
     }
 
     pub(crate) fn save_to(&mut self, target: PathBuf) {
+        match self.project_bytes() {
+            Ok(save) => match std::fs::write(&target,&save.bytes) {
+                Ok(()) => {
+                    self.state.message=Some(if save.lost.is_empty() { format!("Saved {}",target.display()) }
+                        else { format!("Saved {} (not stored yet: {})",target.display(),save.lost.join(", ")) });
+                    self.adopt_save(save,target);
+                }
+                Err(error) => self.state.message=Some(format!("Save failed: {error}")),
+            },
+            Err(error) => self.state.message=Some(format!("Save failed: {error}")),
+        }
+    }
+
+    pub(crate) fn project_bytes(&mut self) -> Result<PreparedSave,String> {
         // Sampler channels keep their sample and settings in Lemon Sampler: copy them to the channel so the FLP stores
         // them.
         for row in self.state.hosted_rows.clone() {
@@ -1293,13 +1328,7 @@ impl App {
             }
             let mut first = s.project.clone();
             crate::project_plugins::store_hosted(&mut first, &self.plugins);
-            match os_flp::project::create(&first) {
-                Ok(f) => f,
-                Err(e) => {
-                    s.message = Some(format!("Save failed: {e}"));
-                    return;
-                }
-            }
+            os_flp::project::create(&first).map_err(|error|error.to_string())?
         } else {
             s.file.clone().expect("checked")
         };
@@ -1311,25 +1340,17 @@ impl App {
         let mut proj = s.project.clone();
         crate::project_plugins::store_hosted(&mut proj, &self.plugins);
         // Added mixer tracks are written before the hidden last track (spec: flp/events/mixer.md "Adding tracks").
-        let result = os_flp::project::apply(&proj, &mut file)
-            .map_err(|e| e.to_string())
-            .and_then(|()| file.to_bytes().map_err(|e| e.to_string()))
-            .and_then(|b| std::fs::write(&target, b).map_err(|e| e.to_string()));
-        s.message = Some(match result {
-            Ok(()) if lost.is_empty() => format!("Saved {}", target.display()),
-            Ok(()) => format!("Saved {} (not stored yet: {})", target.display(), lost.join(", ")),
-            Err(e) => format!("Save failed: {e}"),
-        });
-        if s.message.as_deref().is_some_and(|m| m.starts_with("Saved")) {
-            // The saved file now holds the channels in model order, and the plugins as written.
-            for (i, c) in s.project.channels.iter_mut().enumerate() {
-                c.rack.origin = Some(i as u16);
-            }
-            crate::project_plugins::adopt_saved(&mut s.project, &proj);
-            s.file = Some(file);
-            s.path = Some(target);
-            self.mark_saved();
-        }
+        os_flp::project::apply(&proj,&mut file).map_err(|error|error.to_string())?;
+        let bytes=file.to_bytes().map_err(|error|error.to_string())?;
+        Ok(PreparedSave { file, project:proj, bytes, lost })
+    }
+
+    pub(crate) fn adopt_save(&mut self, save: PreparedSave, target: PathBuf) {
+        for (i,c) in self.state.project.channels.iter_mut().enumerate() { c.rack.origin=Some(i as u16); }
+        crate::project_plugins::adopt_saved(&mut self.state.project,&save.project);
+        self.state.file=Some(save.file);
+        self.state.path=Some(target);
+        self.mark_saved();
     }
 
     /// The project as it is now counts as saved (opened, saved, new).
@@ -1349,6 +1370,10 @@ impl App {
         if !self.unsaved() || cfg!(test) {
             return true;
         }
+        #[cfg(target_arch = "wasm32")]
+        return web_sys::window().is_some_and(|w| w.confirm_with_message(&format!("Discard unsaved changes before {doing}? Cancel to keep editing or save first with Ctrl+S.")).unwrap_or(false));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
         let name = self.state.path.as_ref().and_then(|p| p.file_name()).map_or_else(|| "the new project".to_string(), |n| n.to_string_lossy().into_owned());
         match crate::dialog::yes_no_cancel("Lemon Studio", &format!("Save the changes to {name} before {doing}?")) {
             Some(crate::dialog::Answer::Yes) => {
@@ -1367,8 +1392,14 @@ impl App {
         }
     }
 
+    }
+
     /// FILE > Save new version (Ctrl+N): saves next to the project as "name_2.flp", "name_3.flp", ... (the first free
     /// number), which becomes the project's file. A project without a file asks for a name.
+    #[cfg(target_arch = "wasm32")]
+    fn save_new_version(&mut self) { self.save(true); }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn save_new_version(&mut self) {
         let Some(path) = self.state.path.clone() else { return self.save(true) };
         let stem = path.file_stem().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -2970,13 +3001,11 @@ impl App {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn theme_dialog(&mut self) { crate::web::pick(crate::web::Import::Theme); }
+    fn theme_dialog(&mut self) { crate::web::pick(self,crate::web::Import::Theme); }
 
     #[cfg(target_arch = "wasm32")]
-    fn save(&mut self, _: bool) { self.state.message = Some("Browser project export is being connected".into()); }
+    fn save(&mut self, _: bool) { crate::web::files::save(self); }
 
-    #[cfg(target_arch = "wasm32")]
-    fn export_wav(&mut self) { self.state.message = Some("Browser WAV export is being connected".into()); }
 
     fn settings_act(&mut self, a: views::settings::SAct) {
         use views::settings::SAct;
@@ -5508,6 +5537,8 @@ impl App {
                 if !self.confirm_discard("starting a new project") {
                     return;
                 }
+                #[cfg(target_arch = "wasm32")]
+                { crate::web::files::changed_project(); os_paths::fs::clear(); }
                 self.transport.stop();
                 self.reset_hosted();
                 let s = &mut self.state;
@@ -5545,7 +5576,9 @@ impl App {
                 }
             }
             #[cfg(target_arch = "wasm32")]
-            (0, FILE_OPEN) => crate::web::pick(crate::web::Import::Project),
+            (0, FILE_OPEN) => crate::web::pick(self,crate::web::Import::Project),
+            #[cfg(target_arch = "wasm32")]
+            (0, 17) => crate::web::pick(self,crate::web::Import::Folder),
             (0, FILE_SAVE) => self.save(false),
             (0, FILE_EXPORT) => self.export_wav(),
             // ADD > Sampler: a new Lemon Sampler channel at the bottom of the rack (spec: ui/plugin-menu.md §1).
@@ -5791,7 +5824,11 @@ fn save_monitor_cfg(cfg: &crate::monitor::Settings) -> Result<PathBuf, String> {
 /// Read a `.flstheme` (spec ui/flstheme.md) or a Lemon Studio theme text file.
 pub fn theme_from_file(path: &std::path::Path) -> Result<Theme, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&bytes);
+    theme_from_bytes(path,&bytes)
+}
+
+pub(crate) fn theme_from_bytes(path:&std::path::Path,bytes:&[u8])->Result<Theme,String> {
+    let text = String::from_utf8_lossy(bytes);
     let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("flstheme")) {
         let fl = os_theme::FlTheme::parse(&text);
@@ -10381,4 +10418,38 @@ mod tests {
         assert_eq!((r.format.as_str(), r.name.as_str(), r.state == kars), (d.format.as_str(), d.name.as_str(), true));
         println!("Kars' changed copy saved as {} ({} bytes of state)", r.format, kars.len());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn web_file_round_trip_and_invalid_import_preserve_project() {
+    let mut app=App::new(None);
+    app.state.project.channels[0].sample_path=Some("a/piano.wav".into());
+    app.state.project.channels[1].sample_path=Some("b/piano.wav".into());
+    app.state.tempo=147.0;
+    let unavailable=add_plugin_channel(&mut app.state.project,"Browser unavailable fixture");
+    let opaque=vec![173,219,52,222,239,157,6,210];
+    app.state.project.channels[unavailable].plugin_state=Some(opaque.clone());
+    let save=app.project_bytes().unwrap();
+    if let Some(dir)=std::env::var_os("WEB_FILE_FIXTURE") {
+        let dir=PathBuf::from(dir);std::fs::create_dir_all(dir.join("a")).unwrap();std::fs::create_dir_all(dir.join("b")).unwrap();
+        std::fs::write(dir.join("project.flp"),&save.bytes).unwrap();
+        for (folder,hz) in [("a",220.0),("b",440.0)] {
+            let audio:Vec<_>=(0..4800).flat_map(|i|{let v=(i as f32*hz*std::f32::consts::TAU/48000.0).sin()*0.2;[v,v]}).collect();
+            os_engine::wav::write_f32_stereo(&mut std::fs::File::create(dir.join(folder).join("piano.wav")).unwrap(),48000,&audio).unwrap();
+        }
+    }
+    let mut reopened=App::new(None);
+    reopened.open_bytes("test.flp".into(),Ok(save.bytes));
+    assert_eq!(reopened.state.tempo,147.0);
+    assert_eq!(reopened.state.project.channels[unavailable].plugin_state,Some(opaque));
+    assert_eq!(reopened.state.project.channels[0].sample_path.as_deref(),Some("a/piano.wav"));
+    assert_eq!(reopened.state.project.channels[1].sample_path.as_deref(),Some("b/piano.wav"));
+    let before=reopened.state.project.clone();
+    reopened.open_bytes("broken.flp".into(),Ok(b"not an FLP".to_vec()));
+    assert_eq!(reopened.state.project,before);
+    assert!(reopened.state.message.as_deref().unwrap().contains("Could not open"));
+    reopened.state.tempo+=1.0;
+    reopened.save_to("/this-directory-does-not-exist/project.flp".into());
+    assert!(reopened.unsaved(),"Failed save must not clear dirty state");
 }
