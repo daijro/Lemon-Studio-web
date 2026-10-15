@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 os-model.workspace = true
+os-paths.workspace = true
 os-dsp.workspace = true
 miniz_oxide = "0.8"
 thiserror.workspace = true
