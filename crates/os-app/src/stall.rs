@@ -15,8 +15,8 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::thread::Thread;
-use std::time::{Duration, Instant};
+use crate::thread::Thread;
+use crate::time::{Duration, Instant};
 
 /// How long past a tick's due time winit's loop counts as held up.
 pub const LATE: Duration = Duration::from_millis(25);
@@ -53,16 +53,16 @@ impl Watchdog {
             if due == NONE {
                 // Until the woken tick asks for the next one (`next` unparks). Parking is coarse (the system timer),
                 // sleeping is not: due times are slept to.
-                std::thread::park_timeout(POLL);
+                crate::thread::park_timeout(POLL);
             } else if now < due {
-                std::thread::sleep(Duration::from_nanos(due - now).min(POLL));
+                crate::thread::sleep(Duration::from_nanos(due - now).min(POLL));
             } else if dog.due.compare_exchange(due, NONE, Ordering::AcqRel, Ordering::Acquire).is_ok() {
                 // Nobody moved the due time since: the tick was missed.
                 dog.held.store(true, Ordering::Release);
                 wake();
             }
         };
-        if let Ok(t) = std::thread::Builder::new().name("ui watchdog".into()).spawn(run) {
+        if let Ok(t) = crate::thread::Builder::new().name("ui watchdog".into()).spawn(run) {
             let _ = self.thread.set(t.thread().clone());
         }
     }
@@ -109,7 +109,7 @@ mod tests {
         let end = Instant::now() + Duration::from_millis(300);
         while Instant::now() < end {
             dog.next(Instant::now() + Duration::from_millis(10), false);
-            std::thread::sleep(Duration::from_millis(5));
+            crate::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(WAKES.load(Ordering::Acquire), 0, "ticks on time never wake the app");
         assert!(!dog.take());
@@ -118,7 +118,7 @@ mod tests {
         dog.next(stopped + Duration::from_millis(10), false);
         let deadline = stopped + Duration::from_secs(10);
         while WAKES.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(2));
+            crate::thread::sleep(Duration::from_millis(2));
         }
         assert_eq!(WAKES.load(Ordering::Acquire), 1, "a missed tick wakes the app");
         assert!(stopped.elapsed() >= Duration::from_millis(410), "not before the tick was late: {:?}", stopped.elapsed());
@@ -129,13 +129,13 @@ mod tests {
         dog.next(held + Duration::from_millis(10), true);
         let deadline = held + Duration::from_secs(10);
         while WAKES.load(Ordering::Acquire) == 1 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
+            crate::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(WAKES.load(Ordering::Acquire), 2);
         assert!(held.elapsed() >= Duration::from_millis(10));
         assert!(dog.take());
         // No tick asked for since: no more wakes.
-        std::thread::sleep(Duration::from_millis(150));
+        crate::thread::sleep(Duration::from_millis(150));
         assert_eq!(WAKES.load(Ordering::Acquire), 2, "one wake per missed tick");
     }
 }

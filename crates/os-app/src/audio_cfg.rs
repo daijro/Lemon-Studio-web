@@ -269,7 +269,17 @@ pub struct Output {
 /// The output for `cfg`: its device (else the system default), its rate when the device offers it (else the
 /// device's own) and its buffer length when the device takes it (else the device's default).
 pub fn output(cfg: &AudioCfg) -> Result<Output, String> {
+    #[cfg(target_arch = "wasm32")]
+    { let cfg=cfg.clone(); crate::web::audio::dispatch(move || output_here(&cfg)) }
+    #[cfg(not(target_arch = "wasm32"))]
+    { output_here(cfg) }
+}
+
+fn output_here(cfg: &AudioCfg) -> Result<Output, String> {
+    #[cfg(not(target_arch = "wasm32"))]
     let host = host(cfg);
+    #[cfg(target_arch = "wasm32")]
+    let host = cpal::host_from_id(cpal::HostId::AudioWorklet).map_err(|e|e.to_string())?;
     let chosen = cfg.device.as_ref().and_then(|want| find(host.output_devices().ok()?, want));
     let device = match chosen {
         Some(d) => d,
