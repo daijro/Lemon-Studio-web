@@ -391,6 +391,9 @@ Serve over HTTPS with `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp` on the page. The included `_headers` file supports
 hosts that read that format; configure equivalent response headers on other servers.
 All scripts, workers, fonts and DSP ship in the package. Audio needs a user gesture.
+Web builds use SIMD and optimization level 3 in Rust and the C++ DSP. The ZIP includes gzip
+sidecars; the local server serves them automatically. Enable precompressed gzip serving on
+other hosts to use them, or serve the original files. SIMD-capable WebAssembly is required.
 
 **Files:** File → Open loads an FLP. Open project folder imports one FLP and its relative
 sample folders together, keeping identical filenames in different folders distinct.
@@ -417,7 +420,9 @@ tools/web-build.sh # production package without test observations
 The desktop Windows/Linux/macOS CI matrix is retained; the separate Web workflow builds and
 checks a ZIP under a nested URL. Local Linux and browser results do not substitute for the
 Windows and macOS CI runs before merging. See `vendor/*/WEB-PATCH.md` for the two dependency
-patches required by browser workers and audio contexts.
+patches required by browser workers and audio contexts. Successful Web workflow builds on
+`main` publish `v0.0.1-web.N` prereleases, where `N` is the workflow run number. Pull requests
+only run checks; retrying an existing run replaces that run's ZIP.
 
 ## Roadmap
 
