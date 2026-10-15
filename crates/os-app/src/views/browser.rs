@@ -671,7 +671,7 @@ mod tests {
     /// File dates read in the local time zone on every platform (spec §6): within a day of the UTC date.
     #[test]
     fn dates_are_local_and_twelve_hour() {
-        let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000); // 2023-11-14 22:13:20 UTC
+        let t = std::time::UNIX_EPOCH + crate::time::Duration::from_secs(1_700_000_000); // 2023-11-14 22:13:20 UTC
         let text = date_text(t);
         assert!(text.contains("/2023 ") && (text.starts_with("11/14/") || text.starts_with("11/15/")), "{text}");
         assert!(text.ends_with(" AM") || text.ends_with(" PM"), "{text}");

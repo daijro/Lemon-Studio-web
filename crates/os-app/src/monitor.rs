@@ -14,7 +14,7 @@
 // spec: ui/main-window.md (monitor group), ui/monitor.md
 
 use std::f32::consts::PI;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// Columns of the scope / analyzer panel (its inner width in logical px).
 pub const COLS: usize = 84;

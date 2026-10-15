@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use crate::time::Instant;
 
 use os_host::Meter;
 
@@ -277,7 +277,7 @@ pub fn fmt_us(us: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use crate::time::Duration;
 
     fn src(key: usize, name: &str, m: &Arc<Meter>, synth: bool) -> Source {
         Source { key, name: name.into(), patch: None, place: format!("Channel {key}"), synth, stopped: false, meter: Some(m.clone()) }

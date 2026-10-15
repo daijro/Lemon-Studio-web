@@ -69,6 +69,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo, width: f32) {
 fn row1(ui: &mut Ui, s: &State, f: &FrameInfo) {
     let t = ui.t;
     // Caption buttons.
+    #[cfg(not(target_arch = "wasm32"))]
     for (x, icon, action, hint) in [
         (4.0, Icon::Minimize, Action::Minimize, "Minimize"),
         (24.0, Icon::Restore, Action::Maximize, "Restore / maximize"),

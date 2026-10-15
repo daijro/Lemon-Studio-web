@@ -19,7 +19,7 @@ use os_engine::Sample;
 use os_ui::{kit, Canvas, Font, Rect};
 
 /// Time spent starting instances per UI tick, so the window keeps painting the progress.
-pub const HOST_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
+pub const HOST_BUDGET: crate::time::Duration = crate::time::Duration::from_millis(12);
 
 pub struct Loading {
     /// Distinct sample files of the project's sampler channels, and how many are decoded.
@@ -48,10 +48,10 @@ impl Loading {
             .collect();
         let queue = Arc::new(Mutex::new(files.iter().rev().map(PathBuf::from).collect::<Vec<_>>()));
         let (tx, rx) = channel();
-        let workers = std::thread::available_parallelism().map_or(2, |n| n.get()).clamp(1, 4).min(files.len());
+        let workers = crate::thread::available_parallelism().map_or(2, |n| n.get()).clamp(1, 4).min(files.len());
         for _ in 0..workers {
             let (queue, tx) = (queue.clone(), tx.clone());
-            std::thread::spawn(move || loop {
+            crate::thread::spawn(move || loop {
                 let Some(path) = queue.lock().ok().and_then(|mut q| q.pop()) else { break };
                 let s = os_engine::sample::load_shared(&path).ok();
                 let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());

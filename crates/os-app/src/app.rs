@@ -659,7 +659,7 @@ pub enum Drag {
     /// The song position slider's handle (`dx` = grab offset from its centre), or the button held on its track (the
     /// next step is due at `next`) (spec: ui/song-position-slider.md §3).
     SongPos { dx: f32 },
-    SongPosHold { next: std::time::Instant },
+    SongPosHold { next: crate::time::Instant },
     /// The piano roll's grid / event panel splitter: `dy` = grab offset from the band's top, `top` = the grid's top,
     /// `h` = the height the grid and the panel share.
     PianoSplit { dy: f32, top: f32, h: f32 },
@@ -915,11 +915,11 @@ pub struct App {
     pub midi: crate::midi_in::MidiIn,
     midi_held: Vec<(u8, usize)>,
     /// Last title-bar press (window, time, position), for double-click maximize / restore.
-    title_click: Option<(Win, std::time::Instant, (f32, f32))>,
+    title_click: Option<(Win, crate::time::Instant, (f32, f32))>,
     /// Last channel-rack press (action, time), for double clicks on slots and mixer boxes (§8, §12).
-    rack_click: Option<(Action, std::time::Instant)>,
+    rack_click: Option<(Action, crate::time::Instant)>,
     /// Last press on the CPU panel, for its double click (the Plugin performance monitor).
-    cpu_click: Option<std::time::Instant>,
+    cpu_click: Option<crate::time::Instant>,
     pub hint: Cow<'static, str>,
     pub mouse: (f32, f32),
     pub drag: Option<Drag>,
@@ -1009,7 +1009,7 @@ impl App {
                 song_mode: false,
                 menu_open: None,
                 lane_menu: false,
-                settings: views::settings::SettingsUi { native: os_native::settings_shown(), ..Default::default() },
+                settings: views::settings::SettingsUi { native: crate::plugins::native_settings_shown(), ..Default::default() },
                 playlist_scroll: (0.0, 0.0),
                 playlist_bar_w: views::playlist::BAR_W,
                 mixer_scroll: 0.0,
@@ -1181,6 +1181,7 @@ impl App {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn save(&mut self, choose: bool) {
         let s = &self.state;
         let target = if choose || s.path.is_none() {
@@ -1197,6 +1198,7 @@ impl App {
     /// mode, one pass of the current pattern in PAT mode) with every hosted instrument and effect to a 32-bit float WAV
     /// file, at the output device's rate. Playback stops; a progress panel shows until the file is written.
     // spec: audio/export.md
+    #[cfg(not(target_arch = "wasm32"))]
     fn export_wav(&mut self) {
         if self.export.is_some() {
             return;
@@ -1411,7 +1413,7 @@ impl App {
     /// a channel without an instance gets one, started from the channel's sample and envelopes. Without Lemon Sampler
     /// (plugin not found) sampler channels keep the engine's own sample playback.
     /// With a `deadline` it stops after the instance that passes it; returns whether every sampler row is done.
-    fn sync_samplers(&mut self, deadline: Option<std::time::Instant>) -> bool {
+    fn sync_samplers(&mut self, deadline: Option<crate::time::Instant>) -> bool {
         let Some(index) = self.plugins.index_of(crate::plugins::LEMON_SAMPLER) else { return true };
         let mut added = false;
         let mut done = true;
@@ -1420,7 +1422,7 @@ impl App {
             if !ch.kind.is_sampler() || self.state.hosted_rows.contains(&row) || self.sampler_failed.contains(&row) {
                 continue;
             }
-            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            if deadline.is_some_and(|d| crate::time::Instant::now() >= d) {
                 done = false;
                 break;
             }
@@ -1455,7 +1457,7 @@ impl App {
             self.sync_samplers(None);
             return;
         };
-        if decoded && self.sync_samplers(Some(std::time::Instant::now() + crate::loading::HOST_BUDGET)) {
+        if decoded && self.sync_samplers(Some(crate::time::Instant::now() + crate::loading::HOST_BUDGET)) {
             self.loading = None;
             self.state.playlist.wave_wait = false;
             return self.invalidate();
@@ -1550,10 +1552,14 @@ impl App {
             self.invalidate();
         }
         // Without plugin windows opening one says so.
-        #[cfg(not(plugin_windows))]
+        #[cfg(not(any(plugin_windows, target_arch = "wasm32")))]
         if self.state.pending_open.take().is_some_and(|r| self.state.hosted_rows.contains(&r)) {
             self.state.message = Some(off_text(PLUGIN_WINDOWS));
             self.invalidate();
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(row)=self.state.pending_open.take().filter(|r|self.state.hosted_rows.contains(r)) {
+            if let Err(error)=self.plugins.open_window(row) { self.state.message=Some(error); self.invalidate(); }
         }
         #[cfg(plugin_windows)]
         if let Some(row) = self.state.pending_open.take().filter(|r| self.state.hosted_rows.contains(r)) {
@@ -1575,8 +1581,21 @@ impl App {
             self.plugins.idle(|row| if row >= crate::plugins::FX_KEY { crate::mixer::fx_info(project, mixer, row) } else { channel_info(project, row) })
         };
         // No plugin windows here, so no requests.
-        #[cfg(not(plugin_windows))]
+        #[cfg(not(any(plugin_windows,target_arch = "wasm32")))]
         self.plugins.idle(|_| None);
+        #[cfg(target_arch = "wasm32")]
+        for request in self.plugins.idle(|_|None) {
+            match request {
+                crate::plugins::Request::Note(row,key,vel,on) => {
+                    if on {
+                        if !self.typing_synced { self.typing_synced=true; self.transport.update(&crate::rack::play_project(&self.state)); }
+                        self.transport.note_on(row,u16::from(key),vel);
+                    } else { self.transport.note_off(row,u16::from(key)); }
+                }
+                crate::plugins::Request::Automate(row,index) => { self.state.message=self.params_automate(row,index); self.invalidate(); }
+                _=>{}
+            }
+        }
         // Keys pressed while a plugin window has the focus still play the typing keyboard.
         #[cfg(any(windows, target_os = "macos"))]
         for k in crate::plugin_window::take_keys() {
@@ -2098,7 +2117,7 @@ impl App {
         if !s.shown(Win::Perf) {
             s.perf.reset();
             let src = self.perf_sources();
-            self.state.perf.read(std::time::Instant::now(), src);
+            self.state.perf.read(crate::time::Instant::now(), src);
         }
         self.state.raise(Win::Perf);
         self.invalidate();
@@ -2173,7 +2192,7 @@ impl App {
             PerfAct::List => {}
             PerfAct::Row(i) => {
                 let Some(key) = p.shown().get(i).map(|r| r.key) else { return };
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let double = p.last_click.is_some_and(|(k, t)| k == key && now.duration_since(t).as_millis() < 400);
                 p.last_click = if double { None } else { Some((key, now)) };
                 if double {
@@ -2269,7 +2288,7 @@ impl App {
     fn tap(&mut self, t: f64) {
         let tp = &mut self.state.tapper;
         let bpm = tp.count.tap(t);
-        tp.flash_at = Some(std::time::Instant::now());
+        tp.flash_at = Some(crate::time::Instant::now());
         tp.flash = 1.0;
         let accent = tp.count.bar().is_some_and(|(_, accent)| accent);
         #[cfg(test)]
@@ -2428,7 +2447,7 @@ impl App {
             // Scope / analyzer / peak bars: from the audio tap; repaint just the monitor when it changed.
             // The monitor advances at its own refresh rate, however often we tick.
             let (tp, rate) = (&self.transport, self.transport.sample_rate());
-            if self.state.monitor.update(std::time::Instant::now(), rate, || tp.take_peaks(), |b| tp.tap(b)) {
+            if self.state.monitor.update(crate::time::Instant::now(), rate, || tp.take_peaks(), |b| tp.tap(b)) {
                 self.damage_rect(MONITOR_RECT);
             }
         }
@@ -2438,7 +2457,7 @@ impl App {
         }
         // CPU panel (spec: ui/main-window.md §13) and the Plugin performance monitor: a reading at the panel's refresh
         // rate.
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
         self.song_pos_tick(now);
         if self.state.cpu.due(now) {
             let tp = &self.transport;
@@ -2600,7 +2619,7 @@ impl App {
     /// A press on the piano roll's splitter: drags it; a double click hides / brings back the event panel (spec:
     /// ui/event-panel-splitter.md §2).
     fn piano_split_press(&mut self) {
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
         let p = &mut self.state.piano;
         let double = p.split_click.is_some_and(|t| now.duration_since(t).as_millis() < 400);
         p.split_click = if double { None } else { Some(now) };
@@ -2938,6 +2957,7 @@ impl App {
     }
 
     /// Theme import (spec: ui/flstheme.md): pick a .flstheme, starting in FL's theme folder when installed.
+    #[cfg(not(target_arch = "wasm32"))]
     fn theme_dialog(&mut self) {
         let mut dlg = rfd::FileDialog::new().add_filter("Theme", &["flstheme", "txt"]).set_title("Load theme");
         let fl = std::path::Path::new(r"C:\Program Files\Image-Line\FL Studio 2026\Artwork\Themes");
@@ -2948,6 +2968,15 @@ impl App {
             self.load_theme_file(&p);
         }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    fn theme_dialog(&mut self) { crate::web::pick(crate::web::Import::Theme); }
+
+    #[cfg(target_arch = "wasm32")]
+    fn save(&mut self, _: bool) { self.state.message = Some("Browser project export is being connected".into()); }
+
+    #[cfg(target_arch = "wasm32")]
+    fn export_wav(&mut self) { self.state.message = Some("Browser WAV export is being connected".into()); }
 
     fn settings_act(&mut self, a: views::settings::SAct) {
         use views::settings::SAct;
@@ -2962,6 +2991,7 @@ impl App {
             }
             // Opt in / out of the experimental native host and scan again so the effect lists follow (spec
             // plugins/fruity-abi.md). Its displayed state comes straight from `os_native::enabled()`.
+            #[cfg(not(target_arch = "wasm32"))]
             SAct::Check(k) if k == views::settings::NATIVE_HOST_CHECK => {
                 let on = !os_native::enabled();
                 os_native::set_enabled(on);
@@ -2973,6 +3003,7 @@ impl App {
                 }
             }
             // Real native plugins in place of the Lemon recreations (spec plugins/fruity-abi.md "Opened projects").
+            #[cfg(not(target_arch = "wasm32"))]
             SAct::Check(k) if k == views::settings::NATIVE_FIRST_CHECK => {
                 let on = !os_native::prefer_native();
                 os_native::set_prefer_native(on);
@@ -3030,6 +3061,7 @@ impl App {
             SAct::Button("Manage plugins") => self.open_settings(views::settings::PLUGINS),
             SAct::Button("Find new plugins") => self.start_scan(crate::plugin_db::Mode::Changed),
             SAct::Button("Rescan all") => self.start_scan(crate::plugin_db::Mode::All),
+            #[cfg(not(target_arch = "wasm32"))]
             SAct::Button("Add folder...") => self.add_plugin_folder(),
             SAct::Button(b) => self.state.message = Some(off_text(b)),
         }
@@ -4981,7 +5013,7 @@ impl App {
             Action::EnableGroups => self.toggle_groups(),
             // spec: ui/main-window.md §13: a double click opens the Plugin performance monitor; one click does nothing.
             Action::CpuPanel => {
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let double = self.cpu_click.is_some_and(|t| now.duration_since(t).as_millis() < 400);
                 self.cpu_click = if double { None } else { Some(now) };
                 if double {
@@ -5154,7 +5186,7 @@ impl App {
             | Action::RackFill(_) => {}
             Action::WinDrag(win) => {
                 // Double-click on the title bar toggles maximized / floating (like the max button).
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
                 let m = self.mouse;
                 let double = matches!(self.title_click, Some((w, t, p)) if w == win
                     && now.duration_since(t).as_millis() < 500
@@ -5303,7 +5335,7 @@ impl App {
     fn rack_act(&mut self, a: &Action) -> bool {
         use crate::rack as rk;
         let (shift, ctrl, alt) = (self.shift, self.ctrl, self.alt);
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
         let double = matches!(&self.rack_click, Some((p, t)) if p == a && now.duration_since(*t).as_millis() < 400);
         if matches!(a, Action::RackSelect(_) | Action::RackMixer(_)) {
             self.rack_click = if double { None } else { Some((a.clone(), now)) };
@@ -5498,6 +5530,7 @@ impl App {
                 let tab = item_at(menu, i).and_then(|it| views::settings::tab_for_menu(it.label)).expect("checked");
                 self.open_settings(tab);
             }
+            #[cfg(not(target_arch = "wasm32"))]
             (0, FILE_OPEN) => {
                 if !self.confirm_discard("opening another project") {
                     return;
@@ -5511,6 +5544,8 @@ impl App {
                     self.open(p);
                 }
             }
+            #[cfg(target_arch = "wasm32")]
+            (0, FILE_OPEN) => crate::web::pick(crate::web::Import::Project),
             (0, FILE_SAVE) => self.save(false),
             (0, FILE_EXPORT) => self.export_wav(),
             // ADD > Sampler: a new Lemon Sampler channel at the bottom of the rack (spec: ui/plugin-menu.md §1).
@@ -5910,7 +5945,7 @@ mod tests {
             app.state.monitor.debug = true;
             let mut seed = 12345u32;
             let mut phase = 0.0f32;
-            app.state.monitor.update(std::time::Instant::now(), 48000, || (0.5, 0.42), |b| {
+            app.state.monitor.update(crate::time::Instant::now(), 48000, || (0.5, 0.42), |b| {
                 for v in b.iter_mut() {
                     seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
                     let noise = (seed >> 8) as f32 / 8388608.0 - 1.0;
@@ -6794,7 +6829,7 @@ mod tests {
         let mut app = App::new(None);
         frame(&mut app, &mut c, None);
         let r = hit_rect(&app, &Action::CpuPanel);
-        assert!(app.state.cpu.update(std::time::Instant::now(), Some(0.25), 3, 0));
+        assert!(app.state.cpu.update(crate::time::Instant::now(), Some(0.25), 3, 0));
         app.mouse_move(r.cx(), r.cy());
         assert!(app.hint.contains("Audio load 25%") && app.hint.contains("3 voices"), "{}", app.hint);
         // One click does nothing; the menu's Audio settings opens the Audio tab.
@@ -6978,7 +7013,7 @@ mod tests {
     fn cpu_panel_menu_and_performance_monitor() {
         use crate::cpu::{CpuCmd, Refresh};
         use crate::perf::{Col, PerfAct};
-        use std::time::{Duration, Instant};
+        use crate::time::{Duration, Instant};
         use winit::keyboard::{Key, NamedKey, SmolStr};
         let Ok(mut c) = Canvas::new(1920, 1080, 1.0) else { return };
         let mut app = App::new(None);
@@ -7172,7 +7207,7 @@ mod tests {
     /// the same as a full paint, in both designs; once out, ticking stops.
     #[test]
     fn tempo_tapper_flash_repaints_the_pad() {
-        use std::time::{Duration, Instant};
+        use crate::time::{Duration, Instant};
         for design in Design::ALL {
             let Ok(mut a) = Canvas::new(1920, 1080, 1.0) else { return };
             let mut b = Canvas::new(1920, 1080, 1.0).unwrap();
@@ -7205,7 +7240,7 @@ mod tests {
     #[test]
     #[ignore]
     fn playing_lemon_3x_osc_keeps_the_audio_going() {
-        use std::time::{Duration, Instant};
+        use crate::time::{Duration, Instant};
         use winit::keyboard::KeyCode;
         let mut app = App::new(None);
         app.plugins = crate::plugins::Plugins::default();
@@ -7221,7 +7256,7 @@ mod tests {
             let t0 = Instant::now();
             while t0.elapsed() < Duration::from_millis(ms) {
                 app.tick();
-                std::thread::sleep(Duration::from_millis(4));
+                crate::thread::sleep(Duration::from_millis(4));
             }
         };
         run(&mut app, 300);
@@ -7468,10 +7503,10 @@ mod tests {
         b.plugins.available = crate::plugins::builtin();
         b.open(flp.clone());
         let _ = std::fs::remove_file(&flp);
-        let t0 = std::time::Instant::now();
-        while !b.state.hosted_rows.contains(&row) && t0.elapsed() < std::time::Duration::from_secs(20) {
+        let t0 = crate::time::Instant::now();
+        while !b.state.hosted_rows.contains(&row) && t0.elapsed() < crate::time::Duration::from_secs(20) {
             b.plugin_tick();
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            crate::thread::sleep(crate::time::Duration::from_millis(5));
         }
         let reopened = &b.state.project.channels[row];
         assert_eq!((reopened.envelopes, reopened.sound), (saved.envelopes, saved.sound));
@@ -7576,10 +7611,10 @@ mod tests {
         assert!(app.animating(), "the panel keeps ticking");
         let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
         app.paint(&mut canvas, None);
-        let t0 = std::time::Instant::now();
-        while app.loading() && t0.elapsed() < std::time::Duration::from_secs(20) {
+        let t0 = crate::time::Instant::now();
+        while app.loading() && t0.elapsed() < crate::time::Duration::from_secs(20) {
             app.plugin_tick();
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            crate::thread::sleep(crate::time::Duration::from_millis(5));
         }
         assert!(!app.loading(), "loading ends");
         for &r in &rows {
@@ -7703,10 +7738,10 @@ mod tests {
         app.plugins.available = crate::plugins::builtin();
         app.open(dir.join("Song.flp"));
         let mut canvas = Canvas::new(1920, 1080, 1.0).unwrap();
-        let t0 = std::time::Instant::now();
-        while app.loading() && t0.elapsed() < std::time::Duration::from_secs(20) {
+        let t0 = crate::time::Instant::now();
+        while app.loading() && t0.elapsed() < crate::time::Duration::from_secs(20) {
             app.plugin_tick();
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            crate::thread::sleep(crate::time::Duration::from_millis(5));
         }
         for _ in 0..5 {
             app.tick();
@@ -8170,7 +8205,7 @@ mod tests {
         }
         app.act(Action::Play);
         for _ in 0..30 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            crate::thread::sleep(crate::time::Duration::from_millis(16));
             app.tick();
         }
         assert!(app.transport.playing());
@@ -8179,7 +8214,7 @@ mod tests {
         assert!(piano::notes(&app.state).is_empty());
         let mut loud = 0;
         for i in 0..120 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            crate::thread::sleep(crate::time::Duration::from_millis(16));
             app.tick();
             if i > 20 && !app.transport.sounding().is_empty() {
                 loud += 1;
@@ -8194,7 +8229,7 @@ mod tests {
     #[ignore]
     fn transport_states_and_modes() {
         use crate::transport::State as T;
-        let step = || std::thread::sleep(std::time::Duration::from_millis(250));
+        let step = || crate::thread::sleep(crate::time::Duration::from_millis(250));
         let mut app = App::new(None);
         let ch = app.state.project.channels[0].index;
         app.state.project.patterns = vec![Pattern {
@@ -8261,10 +8296,10 @@ mod tests {
             app.mouse_up();
             frame(&mut app, &mut c, None);
             app.tick();
-            std::thread::sleep(std::time::Duration::from_millis(30));
+            crate::thread::sleep(crate::time::Duration::from_millis(30));
         }
         for _ in 0..60 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            crate::thread::sleep(crate::time::Duration::from_millis(16));
             app.tick();
         }
         assert!(!app.transport.sounding().is_empty() || app.transport.peaks().0 > 0.0, "playing notes");
@@ -8291,7 +8326,7 @@ mod tests {
         assert!(piano::notes(&app.state).iter().all(|n| Some(n.channel) != ch), "{:?}", piano::notes(&app.state));
         let mut loud = 0;
         for i in 0..150 {
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            crate::thread::sleep(crate::time::Duration::from_millis(16));
             app.tick();
             if i > 20 && !app.transport.sounding().is_empty() {
                 loud += 1;
@@ -9233,10 +9268,10 @@ mod tests {
             ..Default::default()
         }];
         app.act(Action::Play);
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        crate::thread::sleep(crate::time::Duration::from_millis(300));
         assert!(app.transport.playing() && !app.transport.song());
         ruler_press(&mut app, &mut c, g.x_of(4.0 * bar as f32) + 1.0, g.x_of(4.0 * bar as f32) + 1.0, ruler.cy(), false);
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        crate::thread::sleep(crate::time::Duration::from_millis(300));
         assert!(app.state.song_mode && app.transport.playing() && app.transport.song(), "the song plays");
         let tick = app.transport.tick();
         assert!(tick >= f64::from(4 * bar) && tick < f64::from(5 * bar), "from the clicked bar: {tick}");
@@ -9516,9 +9551,9 @@ mod tests {
         // Held: steps every repeat until the handle is under the pointer (1584 ticks), then it stays.
         app.mouse_down();
         assert_eq!(pos(&app), 72);
-        let t0 = std::time::Instant::now();
+        let t0 = crate::time::Instant::now();
         for i in 1..60 {
-            app.song_pos_tick(t0 + std::time::Duration::from_millis(250 * i));
+            app.song_pos_tick(t0 + crate::time::Duration::from_millis(250 * i));
         }
         assert_eq!(pos(&app), 1584, "stopped under the pointer");
         assert!(app.animating(), "the hold ticks at animation rate");
@@ -9975,9 +10010,9 @@ mod tests {
         app.open_settings(PLUGINS);
         frame(&mut app, &mut c, None);
         let finish = |app: &mut App| {
-            let t0 = std::time::Instant::now();
-            while app.sweep.is_some() && t0.elapsed() < std::time::Duration::from_secs(20) {
-                std::thread::sleep(std::time::Duration::from_millis(5));
+            let t0 = crate::time::Instant::now();
+            while app.sweep.is_some() && t0.elapsed() < crate::time::Duration::from_secs(20) {
+                crate::thread::sleep(crate::time::Duration::from_millis(5));
                 app.scan_tick();
             }
             assert!(app.sweep.is_none(), "the scan ends");

@@ -25,25 +25,25 @@ pub fn modal<T>(show: impl FnOnce() -> T) -> T {
 }
 
 /// Shows `dlg` to pick an existing file. `None`: cancelled.
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub fn pick_file(dlg: rfd::FileDialog) -> Option<std::path::PathBuf> {
     modal(|| dlg.pick_file())
 }
 
 /// Shows `dlg` to pick a folder. `None`: cancelled.
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub fn pick_folder(dlg: rfd::FileDialog) -> Option<std::path::PathBuf> {
     modal(|| dlg.pick_folder())
 }
 
 /// Shows `dlg` to choose where to save. `None`: cancelled.
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub fn save_file(dlg: rfd::FileDialog) -> Option<std::path::PathBuf> {
     modal(|| dlg.save_file())
 }
 
 /// Tells the user something they need to read before going on (an information box with an OK button).
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 pub fn inform(title: &str, text: &str) {
     modal(|| tell(title, text))
 }
@@ -107,7 +107,8 @@ pub mod fake {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn tell(title: &str, text: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     if !on_path("zenity") {
@@ -124,6 +125,7 @@ pub fn yes_no_cancel(title: &str, text: &str) -> Option<Answer> {
     modal(|| ask(title, text))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn ask(title: &str, text: &str) -> Option<Answer> {
     #[cfg(all(unix, not(target_os = "macos")))]
     if !on_path("zenity") {
@@ -159,4 +161,12 @@ fn kdialog(title: &str, text: &str) -> Option<Answer> {
         Some(1) => Answer::No,
         _ => Answer::Cancel,
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn inform(title: &str, text: &str) { let _ = web_sys::window().unwrap().alert_with_message(&format!("{title}\n\n{text}")); }
+#[cfg(target_arch = "wasm32")]
+fn ask(title: &str, text: &str) -> Option<Answer> {
+    let answer = web_sys::window()?.prompt_with_message(&format!("{title}\n\n{text}\nType Yes or No; Cancel keeps the current project.")).ok()??;
+    Some(match answer.trim().to_lowercase().as_str() { "yes" => Answer::Yes, "no" => Answer::No, _ => Answer::Cancel })
 }

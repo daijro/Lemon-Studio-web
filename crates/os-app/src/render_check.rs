@@ -18,7 +18,7 @@
 //! With the scan on it loads plugin files in-process: run it alone, in its own process.
 // spec: audio/export.md
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_engine::{Engine, PlayMode, SampleLibrary};
 use os_model::ChannelKind;
@@ -44,7 +44,7 @@ fn render_project() {
     let t0 = Instant::now();
     while app.loading() && t0.elapsed() < Duration::from_secs(300) {
         app.plugin_tick();
-        std::thread::sleep(Duration::from_millis(5));
+        crate::thread::sleep(Duration::from_millis(5));
     }
     // Effects, wrapped plugins and 3x Osc are hosted on the ticks after loading.
     let mut last = usize::MAX;
@@ -55,7 +55,7 @@ fn render_project() {
             break;
         }
         last = n;
-        std::thread::sleep(Duration::from_millis(10));
+        crate::thread::sleep(Duration::from_millis(10));
     }
     eprintln!("HOSTED {} in {:.1} s: {}", app.plugins.hosted.len(), t0.elapsed().as_secs_f64(), app.state.message.clone().unwrap_or_default());
     report(&app);

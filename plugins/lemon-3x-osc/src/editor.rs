@@ -33,7 +33,7 @@ pub struct Osc3Editor {
     #[cfg_attr(not(windows), allow(dead_code))]
     hwnd: Arc<AtomicIsize>,
     /// Linux and macOS: the open editor's thread waker, for the same.
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
     slot: os_plugkit::gui::Slot,
 }
 
@@ -44,7 +44,7 @@ impl Osc3Editor {
             shared,
             scale: AtomicU32::new(1f32.to_bits()),
             hwnd: Arc::new(AtomicIsize::new(0)),
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
             slot: Default::default(),
         }
     }
@@ -52,7 +52,7 @@ impl Osc3Editor {
     fn notify(&self) {
         #[cfg(windows)]
         win32::post_changed(self.hwnd.load(Ordering::Acquire));
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
         os_plugkit::gui::notify(&self.slot);
     }
 }
@@ -61,6 +61,8 @@ impl Editor for Osc3Editor {
     fn spawn(&self, parent: ParentWindowHandle, context: Arc<dyn GuiContext>) -> Box<dyn Any + Send> {
         let scale = f32::from_bits(self.scale.load(Ordering::Relaxed));
         match parent {
+            #[cfg(target_arch = "wasm32")]
+            ParentWindowHandle::WebCanvas(id) => Box::new(gui::open(id, scale, self.params.clone(), self.shared.clone(), context, &self.slot)),
             #[cfg(windows)]
             ParentWindowHandle::Win32Hwnd(hwnd) => {
                 Box::new(win32::open(hwnd, scale, self.params.clone(), self.shared.clone(), context, self.hwnd.clone()))
@@ -805,7 +807,7 @@ mod win32 {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
 mod gui {
     use std::sync::atomic::Ordering;
     use std::sync::Arc;

@@ -285,6 +285,7 @@ fn load_into(app: &mut App, key: usize, path: &Path) -> Option<String> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn save_as(app: &mut App, key: usize) -> Option<String> {
     let h = header(app, key)?;
     let Some(state) = app.plugins.state(key) else { return Some(format!("{} has no state to save", h.plugin)) };
@@ -413,3 +414,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn save_as(_app: &mut App, _: usize) -> Option<String> { Some("Browser preset export is being connected".into()) }
