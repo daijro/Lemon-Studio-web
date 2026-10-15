@@ -18,3 +18,12 @@ pub fn dispatch<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) ->
 }
 
 pub fn poll() { while let Some(call) = CALLS.pop() { call(); } }
+
+#[wasm_bindgen::prelude::wasm_bindgen(module = "/web/audio.mjs")]
+extern "C" { fn watch_context(context: &wasm_bindgen::JsValue); }
+
+pub fn watch(stream: &cpal::Stream) {
+    if let cpal::platform::StreamInner::AudioWorklet(stream) = stream.as_inner() {
+        if let Some(context) = stream.audio_context() { watch_context(context.as_ref()); }
+    }
+}
