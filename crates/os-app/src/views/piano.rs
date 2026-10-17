@@ -255,6 +255,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
         ui.c.fill_rrect(nr, rad, t.note_rim);
         ui.c.fill_rect_gradient(body, t.note_top, t.note_bottom, (rad - 1.0).max(0.0));
     }
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_piano(ui, s, &g);
     // Tool overlays (§9): marquee and zoom box (orange, rounded), slice and scrub lines.
     match s.piano.overlay {
         Some(Overlay::Marquee(m) | Overlay::ZoomBox(m)) => {
