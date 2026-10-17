@@ -117,7 +117,7 @@ pub fn load(path: &Path) -> Result<Sample, SampleError> {
 pub fn load_bytes(path: &Path, bytes: Vec<u8>) -> Result<Sample, SampleError> {
     let decode_err = |message: String| SampleError::Decode { path: path.to_owned(), message };
     if let Some(vw) = vorbis_in_wav(&bytes) {
-        let mut s = decode(vw.ogg.to_vec(), Some("ogg")).map_err(decode_err)?;
+        let mut s = decode(vw.ogg.to_vec(), Some("ogg"), MAX_FRAMES).map_err(decode_err)?;
         if let Some(frames) = vw.fact_frames {
             s.left.truncate(frames);
             s.right.truncate(frames);
@@ -125,7 +125,7 @@ pub fn load_bytes(path: &Path, bytes: Vec<u8>) -> Result<Sample, SampleError> {
         return Ok(s);
     }
     let ext = path.extension().and_then(|e| e.to_str());
-    decode(bytes, ext).map_err(decode_err)
+    decode(bytes, ext, MAX_FRAMES).map_err(decode_err)
 }
 
 /// The length of the audio file at `path`: its frames and their rate. Read from the file's headers where they give it
@@ -266,7 +266,11 @@ fn mp3_info_frame(b: &[u8]) -> Option<usize> {
     (xing || vbri).then_some(if mpeg1 { 1152 } else { 576 })
 }
 
-fn decode(bytes: Vec<u8>, ext: Option<&str>) -> Result<Sample, String> {
+/// The longest decode kept: both channels in f32 within 256 MiB (about 11 minutes at 48 kHz), so a small compressed
+/// file can't run the memory out.
+const MAX_FRAMES: usize = 256 * 1024 * 1024 / (2 * size_of::<f32>());
+
+fn decode(bytes: Vec<u8>, ext: Option<&str>, max_frames: usize) -> Result<Sample, String> {
     // MP3 plays every decoded frame, the encoder's info frame as silence in front (spec: audio/sampler.md, the table
     // of formats; audio/sample-formats.md).
     let info_frame = mp3_info_frame(&bytes);
@@ -313,6 +317,9 @@ fn decode(bytes: Vec<u8>, ext: Option<&str>) -> Result<Sample, String> {
         let ch = audio.spec().channels().count().max(1);
         buf.resize(audio.samples_interleaved(), 0.0);
         audio.copy_to_slice_interleaved(&mut buf);
+        if left.len() + buf.len() / ch > max_frames {
+            return Err("the sample decodes past the 256 MiB limit".into());
+        }
         for frame in buf.chunks_exact(ch) {
             left.push(frame[0]);
             right.push(if ch > 1 { frame[1] } else { frame[0] });
@@ -695,6 +702,7 @@ mod tests {
     fn mp3_decodes_in_time_and_level() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/click_sine.mp3");
         assert_eq!(mp3_info_frame(&std::fs::read(&path).unwrap()), Some(1152));
+        assert!(decode(std::fs::read(&path).unwrap(), Some("mp3"), 2000).is_err(), "a decode past the cap stops");
         let s = load(&path).expect("mp3 decodes");
         assert_eq!(s.rate, 44100);
         assert_eq!(s.left, s.right, "mono is duplicated");
