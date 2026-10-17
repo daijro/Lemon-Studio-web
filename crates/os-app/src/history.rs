@@ -425,6 +425,11 @@ fn lower(name: &str) -> String {
 }
 
 fn did(s: &mut State, redo_it: bool) -> String {
+    // In a Playground session the session undoes or redoes this person's last change instead (`app::collab`).
+    #[cfg(any(target_arch = "wasm32", test))]
+    if crate::app::collab::undo(&mut s.history, redo_it) {
+        return format!("{} (live session)", if redo_it { "Redo" } else { "Undo" });
+    }
     let (verb, name) = if redo_it { ("Redo", redo(s)) } else { ("Undo", undo(s)) };
     match name {
         Some(n) => format!("{verb}: {}", lower(n)),
@@ -464,6 +469,14 @@ fn shown_in_browser(s: &mut State) {
 
 /// A click on entry `p` of the browser's History folder: undoes or redoes up to it.
 pub fn go_to(s: &mut State, p: usize) -> Option<String> {
+    // In a Playground session: one of the session's Undo or Redo toward the entry (`did`).
+    #[cfg(any(target_arch = "wasm32", test))]
+    {
+        let forward = p > s.history.done;
+        if p != s.history.done && crate::app::collab::undo(&mut s.history, forward) {
+            return Some(format!("History: {} (live session)", if forward { "redo" } else { "undo" }));
+        }
+    }
     let p = p.min(s.history.steps.len());
     while s.history.done > p {
         undo(s);
