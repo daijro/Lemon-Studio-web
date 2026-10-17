@@ -977,7 +977,23 @@ impl ApplicationHandler for Shell {
                                             show(px);
                                         }
                                     }
-                                    let _ = if present.is_empty() { buf.present() } else { buf.present_with_damage(&present) };
+                                    let _ = match present.as_slice() {
+                                        [] => buf.present(),
+                                        // The web's softbuffer converts every pixel of the box around all the rects
+                                        // it presents at once: one rect at a time there, so far-apart changes cost
+                                        // only their own pixels.
+                                        #[cfg(target_arch = "wasm32")]
+                                        [first, rest @ ..] => {
+                                            let shown = buf.present_with_damage(std::slice::from_ref(first));
+                                            for r in rest {
+                                                if let Ok(buf) = surface.buffer_mut() {
+                                                    let _ = buf.present_with_damage(std::slice::from_ref(r));
+                                                }
+                                            }
+                                            shown
+                                        }
+                                        all => buf.present_with_damage(all),
+                                    };
                                 }
                                 // Nothing painted (the OS asked for a redraw): the buffer already
                                 // holds the last frame unless it was discarded.
