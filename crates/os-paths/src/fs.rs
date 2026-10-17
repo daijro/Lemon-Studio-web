@@ -136,6 +136,7 @@ fn imported_samples_keep_portable_names_and_reject_collisions() {
     assert_eq!(read(resolve(reference.to_str().unwrap())).unwrap(), [1, 2]);
     assert!(import("a/piano.wav", vec![9]).is_err());
     assert_eq!(import("b/piano.wav", vec![3]).unwrap(), Path::new("b/piano.wav"));
+    assert!(import("c/piano.wav", vec![0; MAX_IMPORT_BYTES]).is_err(), "the total stays within the limit");
     clear();
     set_root("/imports/reopened".into());
     import("a/piano.wav", vec![1, 2]).unwrap();
