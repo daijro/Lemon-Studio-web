@@ -207,6 +207,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
             ui.c.text_clip(label_font, nr.x + if lemon { 4.0 } else { 3.0 }, nr.y + 2.0, nr.w - 4.0, text, &shown);
         }
     }
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_piano(ui, s, &g);
     // Tool overlays (§9): marquee and zoom box (orange, rounded), slice and scrub lines.
     match s.piano.overlay {
         Some(Overlay::Marquee(m) | Overlay::ZoomBox(m)) => {
