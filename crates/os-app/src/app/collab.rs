@@ -163,14 +163,13 @@ impl Live for App {
 
     /// Keeps a sample that arrived as an import keeps one (this tab's imported files, stored with the project on
     /// the next save), never over a file already here: two people's different files under one name each keep their
-    /// own. The channels playing it start again with it. No song change, no undo step.
+    /// own. It counts toward the tab's 256 MiB of imports like any import, so a save stays restorable. The channels
+    /// playing it start again with it. No song change, no undo step.
     #[cfg(target_arch = "wasm32")]
     fn live_write_asset(&mut self, id: &str, _name: &str, bytes: Vec<u8>) {
-        let Ok(relative) = os_paths::fs::relative_path(id) else { return };
-        if !user_sample(id) || bytes.len() > os_paths::fs::MAX_IMPORT_BYTES || os_paths::fs::exists(os_paths::fs::resolve(id)) {
+        if !user_sample(id) || os_paths::fs::exists(os_paths::fs::resolve(id)) || os_paths::fs::import(id, bytes).is_err() {
             return;
         }
-        os_paths::fs::insert(os_paths::fs::root().join(relative), bytes);
         let rows: Vec<usize> = (self.state.project.channels.iter().enumerate())
             .filter(|(_, c)| c.kind.is_sampler() && c.sample_path.as_deref() == Some(id))
             .map(|(r, _)| r)
