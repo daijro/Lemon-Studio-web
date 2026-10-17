@@ -1,3 +1,12 @@
+// Copyright (C) 2026 ItsAlphaNeon (Lemon Studio's own parts). Lemon Studio: https://github.com/ItsAlphaNeon/Lemon-Studio
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Lemon Studio's own parts of this file are NOT to be used as part of the ArtCraft suite, nor is any other part of
+// Lemon Studio. The parts that come from others' work keep their authors' copyright and licence, named below.
+
+// The whole file is Playground's live-editing adapter template (Playground's `patches/live/playground_live.rs`),
+// unchanged; its author keeps its copyright.
+
 //! Playground live editing, an optional web-only adapter (Playground's `shell/live.js` drives it). The shared document
 //! is the app's own model as JSON, without personal views. A remote change merges into the live document at the end
 //! of a quiet frame, keeping this person's views and unsent work, and is no step of the native undo history. While
