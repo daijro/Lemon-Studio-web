@@ -2930,6 +2930,7 @@ dependencies = [
  "press",
  "pulp-filter",
  "pulseaudio",
+ "rfd",
  "serde",
  "serde_json",
  "softbuffer",

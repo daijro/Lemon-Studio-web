@@ -211,7 +211,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) -> usize {
                 // Timed while the cables swing: a mixer too slow to redraw them hangs them still. Not in tests: they
                 // paint while the rest of the suite runs, and on a busy machine the clock would hang the cables (and
                 // post their message) at random between two paints a test compares. `cable`'s tests give the costs.
-                let swinging = (!cfg!(test) && s.cables.borrow().moving()).then(std::time::Instant::now);
+                let swinging = (!cfg!(test) && s.cables.borrow().moving()).then(crate::time::Instant::now);
                 mixer::paint(ui, s, r, f);
                 if let Some(t) = swinging {
                     s.cables.borrow_mut().paint_cost(t.elapsed());
