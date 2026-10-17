@@ -257,6 +257,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
             ui.c.stroke_rrect(r, 0.0, 1.0, t.playhead);
         }
     }
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_playlist(ui, s, &g);
     // Overlays.
     match s.playlist.overlay {
         Some(Overlay::Marquee(m)) => {
