@@ -116,3 +116,42 @@ fn presence_names_the_pointer_selection_and_drag_in_song_terms() {
     let me = a.presence();
     assert_eq!((me.ghosts.as_slice(), me.clips.as_slice()), ([[768.0, 3.0, 384.0]].as_slice(), ["384:2:p1".to_string()].as_slice()));
 }
+
+#[test]
+fn a_remote_pointer_moving_repaints_around_it_and_a_shared_change_repaints_everything() {
+    let (Ok(mut part), Ok(mut full)) = (os_ui::Canvas::new(1920, 1080, 1.0), os_ui::Canvas::new(1920, 1080, 1.0)) else { return };
+    let mut a = App::new(None);
+    a.paint(&mut part, None);
+    let grid = a.pl_grid.expect("the playlist shows");
+    let g = PGeom::new(&a.state, grid);
+    let tick = |share: f32| f64::from(g.tick_at(grid.x + grid.w * share));
+    let arrangement = a.presence().arrangement;
+    let show = |tick: f64| {
+        let state = marks::Presence { arrangement, view: Some(View::Playlist), pointer: Some([tick, 1.5]), ..Default::default() };
+        let state = serde_json::to_value(state).unwrap();
+        marks::show(vec![live::Presence { id: "b".into(), name: "Bob".into(), color: [0xf5, 0x82, 0x31], state }]);
+    };
+    // Someone new: their name tag is measured as they are first drawn.
+    show(tick(0.4));
+    a.ease_marks();
+    let _ = a.take_damage();
+    a.paint(&mut part, None);
+    // They move: their pointer and tag ease along, painted again where they were and are, not the grid around them.
+    show(tick(0.64));
+    a.ease_marks();
+    let d = a.take_damage().flatten();
+    a.paint_region(&mut part, d.as_deref());
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    a.ease_marks();
+    let d = a.take_damage();
+    let Some(Some(rects)) = &d else { panic!("repaints regions, not the frame: {d:?}") };
+    let area: f32 = rects.iter().map(|r| r.w * r.h).sum();
+    assert!(area < grid.w * grid.h / 20.0, "{area} of {}", grid.w * grid.h);
+    a.paint_region(&mut part, Some(rects));
+    a.paint(&mut full, None);
+    let differ = part.pixmap.data().iter().zip(full.pixmap.data()).filter(|(x, y)| x.abs_diff(**y) > 3).count();
+    assert_eq!(differ, 0, "the partial paint is the full one");
+    // A shared change repaints everything.
+    a.live_adopt(edited(|b| b.state.tempo = 99.0)).unwrap();
+    assert_eq!(a.take_damage(), Some(None));
+}
