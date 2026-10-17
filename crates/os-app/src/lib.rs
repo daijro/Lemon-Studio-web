@@ -648,6 +648,9 @@ impl Shell {
         // our WM_PAINT pending forever while playing, and the plugin windows would never paint (see `FRAME`).
         if self.pending {
             let next = (self.frame_start + paced(self.frame, self.app.animating())).max(self.painted + IDLE);
+            // On the web a redraw waits for the browser's next animation frame, which already paces frames to the
+            // display: waiting for `next` first (a timer) missed that frame whenever the timer fired late.
+            let next = if cfg!(target_arch = "wasm32") { now } else { next };
             if now >= next {
                 self.pending = false;
                 if let Some(w) = &self.window {
