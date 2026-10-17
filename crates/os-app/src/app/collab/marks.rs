@@ -16,7 +16,7 @@ use crate::playlist::{self as pl, PGeom, PlDrag};
 use crate::views::piano::TOP_KEY;
 use os_ui::{Color, Font, Rect};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 /// The editor a pointer, a drag or a selecting box is in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,9 +180,11 @@ struct Peer {
     color: Color,
     state: Presence,
     shown: Shown,
+    /// Their name tag's size as last painted (unknown before).
+    tag: Cell<Option<(f32, f32)>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Shown {
     pointer: Option<[f64; 2]>,
     ghosts: Vec<[f64; 3]>,
@@ -192,8 +194,8 @@ struct Shown {
 #[derive(Default)]
 struct Peers {
     list: Vec<Peer>,
-    /// The others changed since the editors last drew them.
-    changed: bool,
+    /// The others as the editors last drew them, when the list changed since.
+    drawn: Option<Vec<Peer>>,
     last: Option<crate::time::Instant>,
 }
 
@@ -228,17 +230,21 @@ pub(crate) fn show(others: Vec<crate::playground_live::Presence>) {
             }
             let [r, g, b] = o.color;
             let color = Color::rgb(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
-            Some(Peer { id: o.id, name, color, state, shown: Shown::default() })
+            Some(Peer { id: o.id, name, color, state, shown: Shown::default(), tag: Cell::default() })
         })
         .collect();
     PEERS.with_borrow_mut(|peers| {
         for peer in &mut list {
-            if let Some(old) = peers.list.iter_mut().find(|o| o.id == peer.id && same_place(&o.state, &peer.state)) {
-                peer.shown = std::mem::take(&mut old.shown);
+            let Some(old) = peers.list.iter().find(|o| o.id == peer.id) else { continue };
+            if old.name == peer.name {
+                peer.tag.set(old.tag.get());
+            }
+            if same_place(&old.state, &peer.state) {
+                peer.shown = old.shown.clone();
             }
         }
-        peers.list = list;
-        peers.changed = true;
+        let old = std::mem::replace(&mut peers.list, list);
+        peers.drawn.get_or_insert(old);
     });
 }
 
@@ -256,22 +262,44 @@ fn sane(x: f64) -> bool {
 }
 
 /// `shown` moved `k` of the way to `target`, all of it after a jump of more than a quarter of the view or once under
-/// half a pixel is left. `unit`: which scale each part is in (0 ticks, 1 rows). Whether it is still on its way.
-fn ease<const N: usize>(shown: &mut [f64; N], target: [f64; N], unit: [usize; N], k: f64, scale: Scale) -> bool {
+/// half a pixel is left. `unit`: which scale each part is in (0 ticks, 1 rows).
+fn ease<const N: usize>(shown: &mut [f64; N], target: [f64; N], unit: [usize; N], k: f64, scale: Scale) {
     let px = |i: usize, d: f64| d.abs() * [scale.tick, scale.row][unit[i]];
     let far = (0..N).any(|i| px(i, target[i] - shown[i]) > [scale.view.0, scale.view.1][unit[i]] / 4.0);
     if far || target.iter().any(|x| !sane(*x)) {
         *shown = target;
-        return false;
+        return;
     }
     for i in 0..N {
         shown[i] += (target[i] - shown[i]) * k;
     }
     if (0..N).all(|i| px(i, target[i] - shown[i]) < 0.5) {
         *shown = target;
-        return false;
     }
-    true
+}
+
+/// `shown` a step of `k` on toward `state`, in the editor it is in at that editor's scale (`scales`, by view); at once
+/// when that editor is not painted.
+fn step(state: &Presence, shown: &mut Shown, k: f64, scales: [Option<Scale>; 2]) {
+    let Some(scale) = state.view.and_then(|v| scales[v as usize]) else {
+        (shown.pointer, shown.ghosts, shown.band) = (state.pointer, state.ghosts.clone(), state.band);
+        return;
+    };
+    match (&mut shown.pointer, state.pointer) {
+        (Some(at), Some(to)) => ease(at, to, [0, 1], k, scale),
+        (at, to) => *at = to,
+    }
+    if shown.ghosts.len() == state.ghosts.len() {
+        for (at, &to) in shown.ghosts.iter_mut().zip(&state.ghosts) {
+            ease(at, to, [0, 1, 0], k, scale);
+        }
+    } else {
+        shown.ghosts = state.ghosts.clone();
+    }
+    match (&mut shown.band, state.band) {
+        (Some(at), Some(to)) => ease(at, to, [0, 1, 0, 1], k, scale),
+        (at, to) => *at = to,
+    }
 }
 
 impl App {
@@ -286,49 +314,145 @@ impl App {
         Some(Scale { tick, row, view: (f64::from(grid.w), f64::from(grid.h)) })
     }
 
-    /// Each frame: the others' marks a step on toward where they are, and the editors they show in painted again
-    /// while any moves or the list changed.
+    /// Each frame: the others' marks a step on toward where they are. Only where marks were and are now is painted
+    /// again, not the editors around them.
     pub(crate) fn ease_marks(&mut self) {
         let now = crate::time::Instant::now();
         let scales = [self.scale(View::Playlist), self.scale(View::Piano)];
-        let redraw = PEERS.with_borrow_mut(|peers| {
+        // The list as drawn when it changed since, and the people whose marks moved, with where they were.
+        let (drawn, moved) = PEERS.with_borrow_mut(|peers| {
             let dt = peers.last.map_or(0.0, |t| now.duration_since(t).as_secs_f64()).min(0.1);
             peers.last = Some(now);
             let k = 1.0 - (-dt / EASE).exp();
-            let mut moving = false;
-            for peer in &mut peers.list {
-                let (state, shown) = (&peer.state, &mut peer.shown);
-                let scale = state.view.and_then(|v| scales[v as usize]);
-                let Some(scale) = scale else {
-                    (shown.pointer, shown.ghosts, shown.band) = (state.pointer, state.ghosts.clone(), state.band);
-                    continue;
-                };
-                match (&mut shown.pointer, state.pointer) {
-                    (Some(at), Some(to)) => moving |= ease(at, to, [0, 1], k, scale),
-                    (at, to) => *at = to,
-                }
-                if shown.ghosts.len() == state.ghosts.len() {
-                    for (at, &to) in shown.ghosts.iter_mut().zip(&state.ghosts) {
-                        moving |= ease(at, to, [0, 1, 0], k, scale);
-                    }
-                } else {
-                    shown.ghosts = state.ghosts.clone();
-                }
-                match (&mut shown.band, state.band) {
-                    (Some(at), Some(to)) => moving |= ease(at, to, [0, 1, 0, 1], k, scale),
-                    (at, to) => *at = to,
+            let drawn = peers.drawn.take();
+            let mut moved = Vec::new();
+            for (i, peer) in peers.list.iter_mut().enumerate() {
+                let was = peer.shown.clone();
+                step(&peer.state, &mut peer.shown, k, scales);
+                if drawn.is_some() || peer.shown != was {
+                    moved.push((i, was));
                 }
             }
-            let redraw = moving || peers.changed;
-            peers.changed = false;
-            redraw
+            (drawn, moved)
         });
-        if redraw {
-            for grid in [self.pl_grid, self.piano_grid].into_iter().flatten() {
-                self.damage_rect(grid.outset(2.0));
+        if drawn.is_none() && moved.is_empty() {
+            return;
+        }
+        let s = &self.state;
+        let pl = self.pl_grid.map(|grid| (PGeom::new(s, grid), doc::clip_ids(pl::clips(s))));
+        let rg = self.piano_grid.map(|grid| (Geom::new(s, grid), doc::note_ids(piano::notes(s))));
+        // Outlines follow the selections, which change only with the list.
+        let outlines = drawn.is_some();
+        let mut areas = Vec::new();
+        let mut area = |peer: &Peer, shown: &Shown| {
+            let marks = [
+                pl.as_ref().and_then(|(g, ids)| Some((playlist_marks(s, g, ids, &peer.state, shown)?, g.grid))),
+                rg.as_ref().and_then(|(g, ids)| Some((piano_marks(s, g, ids, &peer.state, shown)?, g.grid))),
+            ];
+            for (mut m, grid) in marks.into_iter().flatten() {
+                if !outlines {
+                    m.outlines.clear();
+                }
+                m.area(peer.tag.get(), grid, &mut areas);
             }
+        };
+        PEERS.with_borrow(|peers| {
+            for peer in drawn.iter().flatten() {
+                area(peer, &peer.shown);
+            }
+            for (i, was) in &moved {
+                let peer = &peers.list[*i];
+                area(peer, was);
+                area(peer, &peer.shown);
+            }
+        });
+        for r in areas {
+            self.damage_rect(r);
         }
     }
+}
+
+/// One person's marks in an editor, on screen: the ghosts of what they drag, outlines around what they selected, their
+/// selecting box and the tip of their pointer.
+struct Marks {
+    ghosts: Vec<Rect>,
+    outlines: Vec<Rect>,
+    band: Option<Rect>,
+    tip: Option<(f32, f32)>,
+}
+
+impl Marks {
+    /// What `paint` draws over, inside the editor's `grid` (`tag`: the name tag's size; unknown, the whole grid).
+    fn area(&self, tag: Option<(f32, f32)>, grid: Rect, out: &mut Vec<Rect>) {
+        let mut add = |r: Rect| out.push(r.intersect(&grid.outset(2.0)));
+        // Ghosts' and boxes' edges are 1.5 px lines on their rects, outlines 2 px lines 2 px outside theirs.
+        self.ghosts.iter().for_each(|r| add(r.outset(2.0)));
+        self.outlines.iter().for_each(|r| add(r.outset(4.0)));
+        self.band.into_iter().for_each(|r| add(r.outset(2.0)));
+        if let Some((x, y)) = self.tip {
+            // The arrow with its white edge and shadow, then the tag.
+            add(Rect::new(x - 2.0, y - 2.0, 17.0, 24.0));
+            add(tag.map_or(grid, |(w, h)| Rect::new((x + 12.0).round(), (y + 15.0).round(), w, h).outset(1.0)));
+        }
+    }
+}
+
+/// A selecting box, from its corners through an editor's `x` and `y`.
+fn band_rect([t0, r0, t1, r1]: [f64; 4], x: impl Fn(f64) -> f32, y: impl Fn(f64) -> f32) -> Rect {
+    let (x0, x1, y0, y1) = (x(t0), x(t1), y(r0), y(r1));
+    Rect::span(x0.min(x1), x0.max(x1), y0.min(y1), y0.max(y1))
+}
+
+/// Where `state`'s marks are in the playlist on `g` when shown at `shown` (`ids`: its clips' shared names); None on
+/// another arrangement.
+fn playlist_marks(s: &State, g: &PGeom, ids: &[String], state: &Presence, shown: &Shown) -> Option<Marks> {
+    if state.arrangement != s.project.arrangement().map(|a| a.number) {
+        return None;
+    }
+    let clips = pl::clips(s);
+    // A row's top on screen: a track's top plus the share of its height.
+    let y = |row: f64| {
+        let t = row.floor().clamp(0.0, f64::from(pl::TRACKS - 1));
+        g.y_of(t as u16) + ((row - t) as f32) * g.rows.height(t as u16)
+    };
+    let x = |tick: f64| g.x64(tick) as f32;
+    let here = state.view == Some(View::Playlist);
+    Some(Marks {
+        ghosts: (shown.ghosts.iter())
+            .filter(|v| here && v.iter().all(|x| sane(*x)))
+            .map(|&[t, row, len]| Rect::new(x(t), y(row), (x(t + len.max(0.0)) - x(t)).max(3.0), g.rows.clip_h()))
+            .collect(),
+        outlines: (state.clips.iter())
+            .filter_map(|id| ids.iter().position(|i| i == id))
+            .map(|i| g.clip_rect(&clips[i]))
+            .collect(),
+        band: shown.band.filter(|b| here && b.iter().all(|x| sane(*x))).map(|b| band_rect(b, x, y)),
+        tip: shown.pointer.filter(|p| here && p.iter().all(|x| sane(*x))).map(|[t, row]| (x(t), y(row))),
+    })
+}
+
+/// Where `state`'s marks are in the piano roll on `g` when shown at `shown` (`ids`: its notes' shared names); None
+/// on another pattern or channel.
+fn piano_marks(s: &State, g: &Geom, ids: &[String], state: &Presence, shown: &Shown) -> Option<Marks> {
+    if (state.pattern, state.channel) != (Some(s.pattern), piano::channel(s)) {
+        return None;
+    }
+    let notes = piano::notes(s);
+    let y = |row: f64| g.grid.y + row as f32 * g.row - g.scroll_y;
+    let x = |tick: f64| g.x_of(tick as f32);
+    let here = state.view == Some(View::Piano);
+    Some(Marks {
+        ghosts: (shown.ghosts.iter())
+            .filter(|v| here && v.iter().all(|x| sane(*x)))
+            .map(|&[t, row, len]| Rect::new(x(t), y(row) - 1.0, (x(t + len.max(0.0)) - x(t)).max(3.0), g.row + 1.0))
+            .collect(),
+        outlines: (state.notes.iter())
+            .filter_map(|id| ids.iter().position(|i| i == id))
+            .filter_map(|i| g.note_rect(&notes[i]))
+            .collect(),
+        band: shown.band.filter(|b| here && b.iter().all(|x| sane(*x))).map(|b| band_rect(b, x, y)),
+        tip: shown.pointer.filter(|p| here && p.iter().all(|x| sane(*x))).map(|[t, row]| (x(t), y(row))),
+    })
 }
 
 /// The others in the playlist, after its clips: the ghosts of their drags, outlines around their selected clips,
@@ -338,36 +462,13 @@ pub(crate) fn draw_playlist(ui: &mut Ui, s: &State, g: &PGeom) {
         if peers.list.is_empty() {
             return;
         }
-        let here = s.project.arrangement().map(|a| a.number);
-        let clips = pl::clips(s);
-        let ids = doc::clip_ids(clips);
-        // A row's top on screen: a track's top plus the share of its height.
-        let y = |row: f64| {
-            let t = row.floor().clamp(0.0, f64::from(pl::TRACKS - 1));
-            g.y_of(t as u16) + ((row - t) as f32) * g.rows.height(t as u16)
-        };
-        let x = |tick: f64| g.x64(tick) as f32;
+        let ids = doc::clip_ids(pl::clips(s));
         // The clips' own corners.
         let radius = if crate::views::lemon(ui) { os_ui::kit::lemon::r_btn(ui.t) } else { 1.5 };
-        for peer in peers.list.iter().filter(|p| p.state.arrangement == here) {
-            let shown = peer.state.view == Some(View::Playlist);
-            let ghosts = (peer.shown.ghosts.iter())
-                .filter(|_| shown)
-                .filter(|v| v.iter().all(|x| sane(*x)))
-                .map(|&[t, row, len]| Rect::new(x(t), y(row), (x(t + len.max(0.0)) - x(t)).max(3.0), g.rows.clip_h()))
-                .collect();
-            let outlines = (peer.state.clips.iter())
-                .filter_map(|id| ids.iter().position(|i| i == id))
-                .map(|i| g.clip_rect(&clips[i]))
-                .collect();
-            let band = peer.shown.band.filter(|_| shown).filter(|b| b.iter().all(|x| sane(*x))).map(|[t0, r0, t1, r1]| {
-                let (x0, x1, y0, y1) = (x(t0), x(t1), y(r0), y(r1));
-                Rect::span(x0.min(x1), x0.max(x1), y0.min(y1), y0.max(y1))
-            });
-            let tip = (peer.shown.pointer.filter(|_| shown))
-                .filter(|p| p.iter().all(|x| sane(*x)))
-                .map(|[t, row]| (x(t), y(row)));
-            paint(ui, peer, (ghosts, outlines, band, tip), radius);
+        for peer in &peers.list {
+            if let Some(marks) = playlist_marks(s, g, &ids, &peer.state, &peer.shown) {
+                paint(ui, peer, marks, radius);
+            }
         }
     });
 }
@@ -379,31 +480,12 @@ pub(crate) fn draw_piano(ui: &mut Ui, s: &State, g: &Geom) {
         if peers.list.is_empty() {
             return;
         }
-        let place = (Some(s.pattern), piano::channel(s));
-        let notes = piano::notes(s);
-        let ids = doc::note_ids(notes);
-        let y = |row: f64| g.grid.y + row as f32 * g.row - g.scroll_y;
-        let x = |tick: f64| g.x_of(tick as f32);
+        let ids = doc::note_ids(piano::notes(s));
         let radius = if crate::views::lemon(ui) { 3.5 } else { 2.0 };
-        for peer in peers.list.iter().filter(|p| (p.state.pattern, p.state.channel) == place) {
-            let shown = peer.state.view == Some(View::Piano);
-            let ghosts = (peer.shown.ghosts.iter())
-                .filter(|_| shown)
-                .filter(|v| v.iter().all(|x| sane(*x)))
-                .map(|&[t, row, len]| Rect::new(x(t), y(row) - 1.0, (x(t + len.max(0.0)) - x(t)).max(3.0), g.row + 1.0))
-                .collect();
-            let outlines = (peer.state.notes.iter())
-                .filter_map(|id| ids.iter().position(|i| i == id))
-                .filter_map(|i| g.note_rect(&notes[i]))
-                .collect();
-            let band = peer.shown.band.filter(|_| shown).filter(|b| b.iter().all(|x| sane(*x))).map(|[t0, r0, t1, r1]| {
-                let (x0, x1, y0, y1) = (x(t0), x(t1), y(r0), y(r1));
-                Rect::span(x0.min(x1), x0.max(x1), y0.min(y1), y0.max(y1))
-            });
-            let tip = (peer.shown.pointer.filter(|_| shown))
-                .filter(|p| p.iter().all(|x| sane(*x)))
-                .map(|[t, row]| (x(t), y(row)));
-            paint(ui, peer, (ghosts, outlines, band, tip), radius);
+        for peer in &peers.list {
+            if let Some(marks) = piano_marks(s, g, &ids, &peer.state, &peer.shown) {
+                paint(ui, peer, marks, radius);
+            }
         }
     });
 }
@@ -413,7 +495,7 @@ const ARROW: [(f32, f32); 7] = [(0.0, 0.0), (0.0, 16.0), (4.5, 12.2), (7.6, 18.6
 
 /// One person's marks in their colour: ghosts (their colour at 28 %, the edge at 85 %), outlines (2 px), the selecting
 /// box (dashed), then the pointer with a name tag.
-fn paint(ui: &mut Ui, peer: &Peer, (ghosts, outlines, band, tip): (Vec<Rect>, Vec<Rect>, Option<Rect>, Option<(f32, f32)>), radius: f32) {
+fn paint(ui: &mut Ui, peer: &Peer, Marks { ghosts, outlines, band, tip }: Marks, radius: f32) {
     let c = peer.color;
     // Far off-screen items are cut to near the view, keeping their edges there.
     let near = ui.c.clip_rect().outset(8.0);
@@ -436,11 +518,13 @@ fn paint(ui: &mut Ui, peer: &Peer, (ghosts, outlines, band, tip): (Vec<Rect>, Ve
     edge.push(edge[0]);
     ui.c.polyline(&edge, 1.5, Color::rgb(0xffffff));
     if peer.name.is_empty() {
+        peer.tag.set(Some((0.0, 0.0)));
         return;
     }
     let font = Font::new(12).bold();
     let (w, h) = (ui.c.text_width(font, &peer.name), ui.c.line_height(font));
     let tag = Rect::new((x + 12.0).round(), (y + 15.0).round(), (w + 14.0).ceil(), (h + 6.0).ceil());
+    peer.tag.set(Some((tag.w, tag.h)));
     ui.c.fill_rrect(tag, 6.0, c);
     ui.c.text(font, tag.x + 7.0, tag.y + 3.0, ink(c), &peer.name);
 }
