@@ -2852,6 +2852,7 @@ dependencies = [
  "os-ui",
  "os-vst2",
  "os-vst3",
+ "rfd",
  "serde",
  "serde_json",
  "softbuffer",
