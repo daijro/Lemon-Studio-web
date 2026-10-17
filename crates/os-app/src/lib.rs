@@ -25,6 +25,10 @@ mod thread {
 use std::thread;
 
 mod app;
+// Live editing in a Playground session (web only).
+#[cfg(any(target_arch = "wasm32", test))]
+#[allow(dead_code)]
+mod playground_live;
 mod audio_cfg;
 mod autoscroll;
 #[cfg(test)]
@@ -1462,7 +1466,7 @@ pub fn run() {
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
-        event_loop.spawn_app(shell);
+        event_loop.spawn_app(app::collab::web::Handle::new(shell));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

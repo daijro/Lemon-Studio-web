@@ -563,6 +563,8 @@ pub fn snapshot(s: &mut State) {
 
 /// Restore the last snapshot; returns false when there is nothing to undo.
 pub fn undo(s: &mut State) -> bool {
+    #[cfg(any(target_arch = "wasm32", test))]
+    if crate::app::collab::undo(&mut s.piano.undo) { return true; }
     let Some((number, notes, controls)) = s.piano.undo.pop() else { return false };
     s.pattern = number;
     let p = pattern_mut(s);

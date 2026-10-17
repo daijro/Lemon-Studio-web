@@ -1039,6 +1039,8 @@ pub fn snapshot_with(s: &mut State, extra: Option<Extra>) {
 }
 
 pub fn undo(s: &mut State) -> bool {
+    #[cfg(any(target_arch = "wasm32", test))]
+    if crate::app::collab::undo(&mut s.playlist.undo) { return true; }
     let Some(Snapshot { clips, markers, tracks, automations, stretch, extra }) = s.playlist.undo.pop() else { return false };
     let arr = arr_mut(s);
     arr.clips = clips;

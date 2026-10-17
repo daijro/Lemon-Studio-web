@@ -22,6 +22,10 @@ use crate::piano::{self, Geom, Overlay, PianoState, Tool};
 use crate::transport::{State as TransportState, Transport};
 use crate::views;
 
+// Live editing in a Playground session (web only).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) mod collab;
+
 /// Child windows. Playlist, Mixer and Piano roll float by default and can be moved, resized,
 /// minimized (title bar only) and maximized (filling the workspace); the Channel rack and the
 /// channel plugin window float. All share one stacking order (`State::z`).
