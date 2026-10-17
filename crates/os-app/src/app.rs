@@ -1400,7 +1400,7 @@ pub struct App {
     /// The notes the Playback tool's line holds sounding: (rack row, key, velocity).
     scrub_notes: Vec<(usize, u16, u8)>,
     /// When the mixer's cables were last stepped (`None` while they are still).
-    cables_at: Option<std::time::Instant>,
+    cables_at: Option<crate::time::Instant>,
     /// Velocity of the next key the mouse sounds (a keyboard click sets it from the click's x; back to the default
     /// after use).
     key_velocity: u8,
@@ -4287,7 +4287,7 @@ impl App {
         }
     }
 
-    fn cables_tick(&mut self, now: std::time::Instant) {
+    fn cables_tick(&mut self, now: crate::time::Instant) {
         if !self.state.shown(Win::Mixer) {
             self.state.cables.get_mut().clear();
             self.cables_at = None;
