@@ -10,7 +10,8 @@
 
 use std::cell::Cell;
 use std::path::{Component, Path, PathBuf};
-use std::time::{Instant, SystemTime};
+use crate::time::Instant;
+use std::time::SystemTime;
 
 use os_ui::Rect;
 
@@ -144,7 +145,7 @@ pub struct FileDlg {
 }
 
 /// Double-click interval.
-const DOUBLE: std::time::Duration = std::time::Duration::from_millis(450);
+const DOUBLE: crate::time::Duration = crate::time::Duration::from_millis(450);
 
 static LAST: std::sync::Mutex<Vec<(&'static str, PathBuf)>> = std::sync::Mutex::new(Vec::new());
 
@@ -718,6 +719,17 @@ fn drives() -> Vec<(String, PathBuf)> {
     let mut v = vec![("Computer".to_string(), PathBuf::from("/"))];
     v.extend(sub_dirs(Path::new("/Volumes")).into_iter().filter(|(_, p)| std::fs::canonicalize(p).ok().as_deref() != Some(Path::new("/"))));
     v
+}
+
+/// Elsewhere (the browser build, which picks files with the page's own chooser): no places of the system's.
+#[cfg(not(any(windows, unix)))]
+fn user_dirs(_home: Option<&Path>) -> Vec<(PlaceKind, &'static str, PathBuf)> {
+    Vec::new()
+}
+
+#[cfg(not(any(windows, unix)))]
+fn drives() -> Vec<(String, PathBuf)> {
+    Vec::new()
 }
 
 #[cfg(unix)]
