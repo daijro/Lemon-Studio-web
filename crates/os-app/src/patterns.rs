@@ -442,7 +442,12 @@ pub fn split_by_channel(s: &mut State) {
         let mut clips = Vec::with_capacity(a.clips.len());
         for c in std::mem::take(&mut a.clips) {
             if c.source == ClipSource::Pattern(cur) {
-                clips.extend((1..=k).map(|j| os_model::Clip { source: ClipSource::Pattern(cur + j), ..c }));
+                // Not `Clip { source, ..c }`: the pinned browser toolchain (nightly-2025-11-06) breaks on that update.
+                clips.extend((1..=k).map(|j| {
+                    let mut d = c;
+                    d.source = ClipSource::Pattern(cur + j);
+                    d
+                }));
             }
             clips.push(c);
         }

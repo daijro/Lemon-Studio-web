@@ -148,7 +148,7 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) -> usize {
             Win::Playlist => ui.part(Seg::Win(win), a, |ui| playlist::paint(ui, s, r, f)),
             Win::Mixer => ui.part(Seg::Win(win), a, |ui| {
                 // Timed while the cables swing: a mixer too slow to redraw them hangs them still.
-                let swinging = s.cables.borrow().moving().then(std::time::Instant::now);
+                let swinging = s.cables.borrow().moving().then(crate::time::Instant::now);
                 mixer::paint(ui, s, r, f);
                 if let Some(t) = swinging {
                     s.cables.borrow_mut().paint_cost(t.elapsed());
