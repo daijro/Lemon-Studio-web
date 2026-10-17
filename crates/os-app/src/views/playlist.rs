@@ -233,6 +233,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
             clip_paint(ui, s, &g, i, c);
         }
     }
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_playlist(ui, s, &g);
     // Overlays.
     match s.playlist.overlay {
         Some(Overlay::Marquee(m)) => {
