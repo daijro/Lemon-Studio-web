@@ -68,7 +68,7 @@ fn clock() -> u64 {
     if cfg!(test) {
         return 0x5eed;
     }
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
+    crate::time::SystemTime::now().duration_since(crate::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
 }
 
 /// The seed's bits mixed (as `patterns::random_color` does).

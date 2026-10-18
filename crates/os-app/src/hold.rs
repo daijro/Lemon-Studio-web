@@ -18,7 +18,7 @@
 //!
 // spec: ui/settings-choices.md "Input: Click-and-hold and both mouse buttons (2026-10-16)"
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_model::Note;
 
