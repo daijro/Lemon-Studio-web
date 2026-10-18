@@ -255,6 +255,10 @@ impl App {
         (p.saved_by, p.tempo, p.current_pattern, p.current_arrangement) =
             (old.saved_by.clone(), old.tempo, old.current_pattern, old.current_arrangement);
         (p.groups, p.current_group, p.playlist_view) = (old.groups.clone(), old.current_group, old.playlist_view);
+        // The file's own records: the mode it was saved in, the working time, Show info on opening, the data folder
+        // and the initial values.
+        (p.song_mode, p.work_time, p.show_info) = (old.song_mode, old.work_time, old.show_info);
+        (p.data_folder, p.init_controls) = (old.data_folder.clone(), old.init_controls.clone());
         keep_local(old, &mut p);
         // What changed for the hosted instruments (by rack row) and effects (by mixer track and slot).
         let rows: Vec<usize> = (0..old.channels.len().max(p.channels.len()))
