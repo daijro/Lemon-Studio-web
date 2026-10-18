@@ -60,14 +60,18 @@ fn adopting_keeps_views_and_selections_and_is_no_undo_step() {
     b.state.project.patterns[0].notes = vec![note(96, 60)];
     b.state.piano.select(1, 0, vec![0]);
     b.state.piano.scroll_x = 300.0;
+    let work = Some(os_model::WorkTime { started: 1.0, spent: 2.0 });
+    b.state.project.work_time = work;
     let song = edited(|a| {
-        // A note in front of the selected one, and another tempo.
+        // A note in front of the selected one, another tempo and automatic crossfades.
         a.state.project.patterns[0].notes = vec![note(96, 60), note(0, 64)];
         a.state.tempo = 140.0;
+        a.state.project.auto_crossfades = Some(true);
     });
     b.live_adopt(song.clone()).unwrap();
     assert_eq!(b.live_document(), song, "nothing of its own to report");
     assert_eq!((b.state.piano.scroll_x, b.state.tempo), (300.0, 140.0));
+    assert_eq!((b.state.project.auto_crossfades, b.state.project.work_time), (Some(true), work), "the song's setting, the file's own record");
     let sel = b.state.piano.selection(1, Some(0));
     assert_eq!(sel.iter().map(|&i| piano::notes(&b.state)[i].position).collect::<Vec<_>>(), [96], "the selection follows its note");
     assert!(!piano::undo(&mut b.state), "no undo step");

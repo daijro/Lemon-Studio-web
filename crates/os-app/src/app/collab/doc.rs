@@ -539,8 +539,12 @@ pub(crate) fn encode(p: &Project, tempo: f64, rack: &Rack) -> Value {
     m.insert("arrangements".into(), Value::Array(arrangements));
     m.insert("automations".into(), numbered(&p.automations, |a| a.channel.into()));
     m.insert("swing".into(), p.swing.js());
-    m.insert("time_signature".into(), p.time_signature.js());
+    m.insert("bar".into(), p.bar.js());
+    m.insert("bar_as_signature".into(), p.bar_as_signature.js());
     m.insert("play_truncated".into(), p.play_truncated.js());
+    m.insert("panning_law".into(), p.panning_law.js());
+    m.insert("fast_declick".into(), p.fast_declick.js());
+    m.insert("auto_crossfades".into(), p.auto_crossfades.js());
     m.insert("main_volume".into(), p.main_volume.js());
     m.insert("main_pitch".into(), p.main_pitch.js());
     m.insert("rack".into(), rack.js());
@@ -562,8 +566,12 @@ pub(crate) fn decode(v: &Value) -> Option<Song> {
         arrangements: list(get("arrangements"), unarrangement)?,
         automations: Js::read(get("automations")?)?,
         swing: Js::read(get("swing")?)?,
-        time_signature: Js::read(get("time_signature")?)?,
+        bar: Js::read(get("bar")?)?,
+        bar_as_signature: Js::read(get("bar_as_signature")?)?,
         play_truncated: Js::read(get("play_truncated")?)?,
+        panning_law: Js::read(get("panning_law")?)?,
+        fast_declick: Js::read(get("fast_declick")?)?,
+        auto_crossfades: Js::read(get("auto_crossfades")?)?,
         main_volume: Js::read(get("main_volume")?)?,
         main_pitch: Js::read(get("main_pitch")?)?,
         ..Project::default()
