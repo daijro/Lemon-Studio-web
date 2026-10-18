@@ -13,7 +13,7 @@
 //! the project show its Song info box.
 // spec: ui/settings.md "Info", ui/settings-choices.md "Info", flp/events/project-info.md
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_model::{Project, WorkTime};
 use os_ui::{Color, Font, Rect};
