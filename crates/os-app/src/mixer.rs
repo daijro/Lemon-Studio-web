@@ -19,7 +19,7 @@ use crate::playlist::{Cmd, EditTarget, Mark, PItem, Popup};
 
 /// Mixer controls (the view registers them as `Action::Mix`). Controls that are not available yet (title-bar view
 /// buttons, input pin, latency clocks, track equalizer) are greyed out with `Ui::off` instead.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum MHit {
     /// Anywhere on a strip that is not a control.
     Strip(u16),

@@ -170,10 +170,42 @@ pub fn row_at(s: &State, y: f32) -> Option<usize> {
     if y < inner.y || y >= inner.bottom() {
         return None;
     }
-    layout(s).into_iter().find(|p| {
-        let band = row_y(s, p) - (ROW_H - 22.0) / 2.0;
-        y >= band && y < band + p.pitch()
-    }).map(|p| p.row)
+    layout(s).into_iter().find(|p| y >= band_y(s, p) && y < band_y(s, p) + p.pitch()).map(|p| p.row)
+}
+
+/// The top of a shown row's band: where `row_at` starts it.
+fn band_y(s: &State, p: &RowPos) -> f32 {
+    row_y(s, p) - (ROW_H - 22.0) / 2.0
+}
+
+/// A point in the rack as (step, row): steps from the first step's left edge, and the shown row at `y` (the nearest)
+/// plus how far down its band (0 its top, 1 its bottom). The same spot in anyone's rack, whatever its size, scroll or
+/// place.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn point_at(s: &State, (x, y): (f32, f32)) -> Option<[f64; 2]> {
+    let rows = layout(s);
+    let p = rows.iter().find(|p| y < band_y(s, p) + p.pitch()).or(rows.last())?;
+    let down = ((y - band_y(s, p)) / p.pitch()).clamp(0.0, 0.999);
+    let step = (x - (s.rack_pos.0 + cols(s).step_x) + sx(s)) / STEP_W;
+    Some([f64::from(step), p.row as f64 + f64::from(down)])
+}
+
+/// A `point_at` point on screen here, None when its row is not shown.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn point_xy(s: &State, [step, row]: [f64; 2]) -> Option<(f32, f32)> {
+    let r = row.floor();
+    let p = layout(s).into_iter().find(|p| p.row as f64 == r)?;
+    let x = s.rack_pos.0 + cols(s).step_x - sx(s) + step as f32 * STEP_W;
+    Some((x, band_y(s, &p) + (row - r) as f32 * p.pitch()))
+}
+
+/// Row `r`'s step `k` button where it shows: the row unzipped, the part inside the step area.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn step_rect(s: &State, r: usize, k: u32) -> Option<Rect> {
+    let p = layout(s).into_iter().find(|p| p.row == r && !p.zipped)?;
+    let x0 = s.rack_pos.0 + cols(s).step_x;
+    let b = Rect::new(x0 + STEP_W * k as f32 - sx(s), row_y(s, &p) + 4.0, 13.0, 19.0);
+    Some(b.intersect(&Rect::span(x0 - 1.0, x0 + visible_steps(s) as f32 * STEP_W - 2.0, b.y, b.bottom()))).filter(|b| !b.is_empty())
 }
 
 /// The name button of row `r` when it is shown.
@@ -448,6 +480,8 @@ pub fn paint(ui: &mut Ui, s: &State, f: &FrameInfo) {
             ui.c.text_center(Font::new(13), lb, tc, &txt);
         }
     }
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_rack(ui, s);
     ui.c.pop_clip();
     if vbar {
         let track = Rect::span(inner.right() - 10.0, inner.right(), inner.y, inner.bottom());
