@@ -112,3 +112,5 @@ cpal = { version = "0.18", features = ["audioworklet"] }
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element", "HtmlElement", "console"] }
 # Live sessions: floats read back exactly, so equal songs give equal bytes on every peer.
 serde_json = { version = "1", features = ["float_roundtrip"] }
+# The wall clock (the project's working time, backups' dates) from the page's Date: std's panics in the browser.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "wasmbind"] }
