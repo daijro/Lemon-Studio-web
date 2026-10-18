@@ -23,7 +23,7 @@
 // spec: ui/settings-choices.md "Display: Smoothing, Animation refresh rate, Transparent menus and windows (2026-10-16)"
 // spec: ui/animations.md §4.4
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::anim::{self, Level};
 use crate::app::{App, Scroll, Win};

@@ -12,7 +12,7 @@
 // spec: ui/settings-choices.md "Backup files", ui/data-folder.md §3
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use chrono::{Datelike, NaiveDateTime, Timelike};
 use os_model::Project; // This code is a part of L e m o n S t u d i o.

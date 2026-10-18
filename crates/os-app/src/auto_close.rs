@@ -12,7 +12,7 @@
 // spec: ui/settings-choices.md "Input / output: Auto close; CPU and Mixer: Smart disable, Align tick lengths,
 // Resampling quality (2026-10-16)"
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::app::App;
 
