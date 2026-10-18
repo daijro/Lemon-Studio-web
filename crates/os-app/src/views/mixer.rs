@@ -20,6 +20,8 @@ use crate::icons::{self, Icon};
 pub const STRIP_W: f32 = 44.0;
 /// Fader travel: value units per pixel (handle centre 618 at 0 dB = value 0.8, 970 at value 0).
 pub const FADER_PER_PX: f64 = 1.0 / 440.0;
+/// Where the inserts start in the strips' area: they scroll under the level scale and the master strip left of it.
+pub const INSERTS_X: f32 = 97.0;
 
 // Vertical layout at the default 1080p window (spec §7): absolute y for a window top of 83;
 // bottom-anchored values are offsets from the window bottom.
@@ -97,6 +99,60 @@ impl Ly {
         };
         self.top + y
     }
+
+    /// The measured y that `y` maps to: `y`'s inverse.
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn abs(&self, y: f32) -> f32 {
+        let (m0, m1, f0, f1) = (130.0 - REF_TOP, 453.0 - REF_TOP, 525.0 - REF_TOP, 981.0 - REF_TOP);
+        let k = self.k;
+        let (a, b) = (m0 + (m1 - m0) * k, m0 + (m1 - m0) * k + (f0 - m1));
+        let c = b + (f1 - f0) * k;
+        let d = y - self.top;
+        let ry = if d < m0 {
+            d
+        } else if d < a {
+            m0 + (d - m0) / k
+        } else if d < b {
+            m1 + (d - a)
+        } else if d < c {
+            f0 + (d - b) / k
+        } else {
+            f1 + (d - c)
+        };
+        REF_TOP + ry
+    }
+
+    /// The layout of the mixer a strip's hit (`MHit::Strip`) was registered in.
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn of_strip(strip: Rect) -> Ly {
+        let top = strip.y - (HEAD_Y0 - REF_TOP);
+        Ly::new(Rect::new(strip.x, top, strip.w, strip.bottom() - top))
+    }
+}
+
+/// A point over the strip whose hit (`MHit::Strip`) is `strip`, as (across it 0..1, measured y): the same control at
+/// any mixer size.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn strip_point(strip: Rect, (x, y): (f32, f32)) -> (f32, f32) {
+    ((x - strip.x) / STRIP_W, Ly::of_strip(strip).abs(y))
+}
+
+/// A `strip_point` on screen, over the strip whose hit is `strip`.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn strip_xy(strip: Rect, (across, abs): (f32, f32)) -> (f32, f32) {
+    (strip.x + across * STRIP_W, Ly::of_strip(strip).y(abs))
+}
+
+/// The fader handle's centre at value `v` (0..1, 0.8 = 0 dB) on a mixer of layout `ly` whose bottom is at `bottom`.
+fn handle_y(ly: &Ly, bottom: f32, v: f32) -> f32 {
+    // max/min, not clamp: a very short window gives track_y1 < ly.y(TRACK_Y0) (clamp would panic).
+    ly.y(HANDLE_0DB + (0.8 - v) * 440.0).min(bottom - 99.0 - 5.0).max(ly.y(TRACK_Y0) + 5.0)
+}
+
+/// The fader handle's centre at value `v` on the strip whose hit is `strip`.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn fader_y(strip: Rect, v: f32) -> f32 {
+    handle_y(&Ly::of_strip(strip), strip.bottom(), v)
 }
 
 pub fn fader_db_text(v: f64) -> String {
@@ -195,7 +251,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     }
 
     // Inserts scroll; the master strip and the scale stay put.
-    let area = Rect::new(r.x + 97.0, client.y, strips.w - 97.0, client.h);
+    let area = Rect::new(r.x + INSERTS_X, client.y, strips.w - INSERTS_X, client.h);
     ui.c.fill_rect(Rect::new(r.x + 88.0, client.y, 9.0, client.h), ui.t.s(0x1a1e20));
     for k in 0..3 {
         ui.c.fill_rect(Rect::new(r.x + 92.0, ly.y(497.0 + 3.0 * k as f32), 1.0, 1.0), ui.t.s(0x3a3e41));
@@ -227,6 +283,8 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect, f: &FrameInfo) {
     super::scrollbar(ui, sb, false, s.mixer_scroll, area.w, (f32::from(inserts) + 1.0) * STRIP_W, crate::app::Scroll::MixerX);
     chevron(ui, area.x + 5.0, bottom - 9.5, false, ui.t.s(0x5d6366));
     cables(ui, s, strips, area, bottom);
+    #[cfg(any(target_arch = "wasm32", test))]
+    crate::app::collab::draw_mixer(ui, strips);
 
     slot_panel(ui, s, Rect::new(r.right() - panel_w, r.y, panel_w, r.h));
     resize_zones(ui, s, Win::Mixer, outer);
@@ -499,8 +557,7 @@ fn strip(ui: &mut Ui, s: &State, n: u16, left: f32, bottom: f32, f: &FrameInfo, 
     }
     fader_marks(ui, mx, track_y1, ly);
     let v = track.and_then(|m| m.volume).unwrap_or(0.8) as f32;
-    // max/min, not clamp: a very short window gives track_y1 < ly.y(TRACK_Y0) (clamp would panic).
-    let hy = (ly.y(HANDLE_0DB + (0.8 - v) * 440.0)).min(track_y1 - 5.0).max(ly.y(TRACK_Y0) + 5.0);
+    let hy = handle_y(ly, bottom, v);
     if selected {
         if lemon {
             ui.c.fill_rrect(Rect::new(mx - 1.5, hy, 3.0, track_y1 - hy), 1.5, t.accent);

@@ -791,8 +791,9 @@ pub enum Drag {
     /// A browser item pressed (`started` once it moved far enough), spec: ui/browser.md §3.
     Browser { item: views::browser::Item, label: String, m0: (f32, f32), started: bool },
     /// Channel rack (spec: ui/channel-rack.md): step painting along the start row (§9), slot range select (§8),
-    /// name width (§7), pattern length (§7), a row's loop length (§15), graph editor values (§14).
-    RackPaint { row: usize, on: bool, last: u32 },
+    /// name width (§7), pattern length (§7), a row's loop length (§15), graph editor values (§14). `span`: the steps
+    /// painting crossed, first and last (the others see them painted).
+    RackPaint { row: usize, on: bool, last: u32, span: (u32, u32) },
     RackSel { from: usize },
     RackDots { x0: f32, p0: u32 },
     RackLen { y0: f32, v0: u32 },
@@ -4224,13 +4225,13 @@ impl App {
                     }
                     self.damage_rect(HINT_RECT);
                 }
-                Drag::RackPaint { row, on, last } => {
+                Drag::RackPaint { row, on, last, span } => {
                     if let Some(k) = views::rack::step_at(&self.state, x) {
                         if k != last {
                             for j in last.min(k)..=last.max(k) {
                                 crate::rack::set_step(&mut self.state, row, j, on);
                             }
-                            self.drag = Some(Drag::RackPaint { row, on, last: k });
+                            self.drag = Some(Drag::RackPaint { row, on, last: k, span: (span.0.min(k), span.1.max(k)) });
                             self.invalidate();
                         }
                     }
@@ -6718,7 +6719,7 @@ impl App {
         } else {
             crate::rack::toggle_step(s, i, k);
         }
-        self.drag = Some(Drag::RackPaint { row: i, on: !right, last: k });
+        self.drag = Some(Drag::RackPaint { row: i, on: !right, last: k, span: (k, k) });
     }
 
     /// Speaker (spec: ui/channel-rack.md §7): plays the current pattern; while it plays, pauses / resumes.
