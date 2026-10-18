@@ -15,7 +15,7 @@
 //! of any mouse button stops every ease where it is, but on a scroll bar's arrow, which steps on from the target.
 // spec: ui/settings-choices.md "Display: Smoothing, Animation refresh rate, Transparent menus and windows (2026-10-16)"
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::app::{App, Scroll};
 use crate::prefs;
