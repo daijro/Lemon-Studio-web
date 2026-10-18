@@ -158,3 +158,28 @@ fn a_remote_pointer_moving_repaints_around_it_and_a_shared_change_repaints_every
     a.live_adopt(edited(|b| b.state.tempo = 99.0)).unwrap();
     assert_eq!(a.take_damage(), Some(None));
 }
+
+#[test]
+fn a_mixer_point_stays_on_its_control_in_a_mixer_of_another_height() {
+    use crate::{knobs::KnobId, mixer::MHit, views::mixer};
+    let Ok(mut c) = os_ui::Canvas::new(1920, 1080, 1.0) else { return };
+    let mut a = App::new(None);
+    a.state.z = vec![Win::Mixer];
+    let mut at_height = |a: &mut App, h: f32| {
+        let rect = os_ui::Rect::new(100.0, 120.0, 1200.0, h);
+        a.state.wins[Win::Mixer.slot().unwrap()] = crate::app::WinState { rect, maxed: false, mini: false };
+        a.paint(&mut c, None);
+        let rect = |action: Action| a.hits.iter().rev().find(|h| h.action == action).map(|h| h.rect).unwrap();
+        let (pan, led, fader) = (rect(Action::Knob(KnobId::MixPan(2))), rect(Action::Mix(MHit::Led(2))), rect(Action::Fader(2)));
+        // Fixed-size controls between the meter and the fader, and the fader's travel, which scales.
+        let spots = [(pan.cx(), pan.cy()), (led.cx(), led.cy()), (fader.cx(), fader.y + 5.0), (fader.cx(), fader.bottom() - 5.0)];
+        (rect(Action::Mix(MHit::Strip(2))), spots)
+    };
+    let (tall, spots) = at_height(&mut a, 900.0);
+    let points = spots.map(|p| mixer::strip_point(tall, p));
+    let (short, spots) = at_height(&mut a, 450.0);
+    for (p, (x, y)) in points.into_iter().zip(spots) {
+        let (px, py) = mixer::strip_xy(short, p);
+        assert!((px - x).abs() < 0.01 && (py - y).abs() < 0.01, "{p:?} lands at {px}, {py}, not {x}, {y}");
+    }
+}

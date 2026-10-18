@@ -6,7 +6,8 @@
 //! through `playground_live`, and nothing here runs until the shell connects. The song is shared as JSON ([`doc`]);
 //! a remote change merges into it at the start of a quiet frame, keeping this person's views and unsent edits, and is
 //! no step of the project's undo history. While connected, Undo and Redo go to the session, which undoes only this
-//! person's changes. The others' pointers, selections and drags show in the playlist and the piano roll ([`marks`]).
+//! person's changes. The others' pointers, selections and drags show in the playlist, the piano roll, the channel rack
+//! and the mixer ([`marks`]).
 //! User samples the song plays travel to the people who lack them.
 
 // Natively only the tests reach it: the shell's calls are the web's.
@@ -20,7 +21,7 @@ use crate::playground_live::{self as live, Live};
 use serde_json::Value;
 use std::cell::RefCell;
 
-pub(crate) use marks::{draw_piano, draw_playlist};
+pub(crate) use marks::{draw_mixer, draw_piano, draw_playlist, draw_rack};
 
 /// The shared document's format: its number goes up when the song's JSON changes form.
 pub(crate) const FORMAT: &str = concat!("lemon-studio:1:", env!("CARGO_PKG_VERSION"));

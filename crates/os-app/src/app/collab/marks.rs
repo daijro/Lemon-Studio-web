@@ -3,15 +3,19 @@
 // This file is part of Lemon Studio: https://github.com/ItsAlphaNeon/Lemon-Studio
 
 //! Where each person in a live session is, for the others: their pointer, their selected clips and notes, and the
-//! clips or notes they are dragging, the box they are selecting with, as it happens (the song itself changes only when
-//! a gesture ends). All in the song's terms (ticks, tracks, keys, shared names), so each person draws the others
-//! through their own scroll and zoom, eased toward where the others last were.
+//! clips or notes they are dragging, the box they are selecting with, the steps they are painting in the channel rack
+//! and the fader or knob they are turning, as it happens (the song itself changes only when a gesture ends). All in
+//! the song's terms (ticks, tracks, keys, shared names, rack rows and steps, mixer tracks and controls), so each person
+//! draws the others through their own scroll, zoom and window layout, eased toward where the others last were.
 
 use super::doc;
-use crate::app::{App, Drag, State, Ui, Win};
+use crate::app::{Action, App, Drag, Hit, State, Ui, Win};
+use crate::knobs::KnobId;
+use crate::mixer::MHit;
 use crate::piano::{self, Geom};
 use crate::playlist::{self as pl, PGeom, PlDrag};
 use crate::views::piano::TOP_KEY;
+use crate::views::{mixer, rack};
 use os_ui::{Color, Font, Rect};
 use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
@@ -22,11 +26,46 @@ use std::cell::{Cell, RefCell};
 pub(crate) enum View {
     Playlist,
     Piano,
+    Rack,
+    Mixer,
 }
 
-/// One person's presence. Rows are a playlist track's index or a piano-roll key's row from the top (131 minus the
-/// key), plus how far down it (0 its top, 1 its bottom). Selections are the shared names of the items; while a drag
-/// runs they name the items where it found them, and `ghosts` has them (tick, row, length in ticks) where they are now.
+/// A control in the mixer or the rack: a track's fader, a knob, a mixer button.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Control {
+    Fader(u16),
+    Knob(KnobId),
+    Mix(MHit),
+}
+
+impl Control {
+    /// The control a hit is (a strip's background is none).
+    fn of(a: &Action) -> Option<Control> {
+        match *a {
+            Action::Fader(n) => Some(Control::Fader(n)),
+            Action::Knob(id) => Some(Control::Knob(id)),
+            Action::Mix(MHit::Strip(_)) => None,
+            Action::Mix(h) => Some(Control::Mix(h)),
+            _ => None,
+        }
+    }
+
+    fn action(self) -> Action {
+        match self {
+            Control::Fader(n) => Action::Fader(n),
+            Control::Knob(id) => Action::Knob(id),
+            Control::Mix(h) => Action::Mix(h),
+        }
+    }
+}
+
+/// One person's presence. Rows are a playlist track's index, a piano-roll key's row from the top (131 minus the key)
+/// or a rack row, plus how far down it (0 its top, 1 its bottom). Selections are the shared names of the items; while
+/// a drag runs they name the items where it found them, and `ghosts` has them (tick, row, length in ticks) where they
+/// are now. In the rack a pointer is (step, row) and `ghosts` the steps painted (step, row, 1 on or 0 off); in the
+/// mixer it is (track plus how far across its strip, the strip's height as measured at 1080p, see
+/// `views::mixer::strip_point`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Presence {
@@ -52,6 +91,13 @@ pub(crate) struct Presence {
     /// A selecting box: (tick, row) of two corners.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub band: Option<[f64; 4]>,
+    /// The fader or knob dragged in the mixer or the rack, and its value (0..1) now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub control: Option<(Control, f64)>,
+    /// The control under the pointer in the mixer or the rack, and where on it (0..1 across and down): it may sit
+    /// elsewhere against the pointer's point in a window of another size.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub over: Option<(Control, [f64; 2])>,
 }
 
 /// The most items a selection or a drag carries.
@@ -78,6 +124,21 @@ fn playlist_at(g: &PGeom, (x, y): (f32, f32)) -> [f64; 2] {
 fn piano_at(g: &Geom, (x, y): (f32, f32)) -> [f64; 2] {
     let row = (y - g.grid.y + g.scroll_y) / g.row.max(1.0);
     [fine(f64::from(g.tick_at(x)), 100.0), fine(f64::from(row), 1000.0)]
+}
+
+/// The mixer strips painted (`hits`), topmost first: track and hit rect.
+fn strips(hits: &[Hit]) -> impl Iterator<Item = (u16, Rect)> + '_ {
+    hits.iter().rev().filter_map(|h| match h.action {
+        Action::Mix(MHit::Strip(n)) => Some((n, h.rect)),
+        _ => None,
+    })
+}
+
+/// A mixer point (track and how far across its strip, measured y) of `at`, over the strips in `hits`.
+fn mixer_at(hits: &[Hit], (x, y): (f32, f32)) -> Option<[f64; 2]> {
+    let (n, strip) = strips(hits).find(|(_, r)| x >= r.x && x < r.right())?;
+    let (across, abs) = mixer::strip_point(strip, (x, y));
+    Some([fine(f64::from(n) + f64::from(across), 1000.0), fine(f64::from(abs), 100.0)])
 }
 
 /// The names of `selected` items of a list whose `dragged` items a drag has moved: named as the drag found them.
@@ -138,6 +199,42 @@ impl App {
             }
             None => me.notes = names_before(notes, &[], &s.piano.selection(s.pattern, me.channel), doc::note_ids),
         }
+        // The rack's step painting: the steps it crossed as they are now, those nearest the pointer when there are many.
+        if let Some(Drag::RackPaint { row, last, span, .. }) = self.drag
+            && let Some(c) = s.project.channels.get(row)
+        {
+            let notes = s.project.pattern(s.pattern).map_or(&[][..], |p| &p.notes);
+            let ps = crate::rack::per_step(s);
+            let near = MAX_ITEMS as u32;
+            let (from, to) = (span.0.max(last.saturating_sub(near)), span.1.min(last.saturating_add(near)));
+            let mut steps: Vec<u32> = (from..=to).collect();
+            steps.sort_by_key(|k| k.abs_diff(last));
+            me.ghosts = (steps.into_iter().take(MAX_ITEMS))
+                .map(|k| [f64::from(k), row as f64, f64::from(u8::from(crate::rack::step_on(notes, c.index, k, ps)))])
+                .collect();
+            me.view = Some(View::Rack);
+        }
+        // A fader or knob turned, in the window its hit is in. A knob holds the cursor on it while it turns
+        // (`cursor_locked`): the pointer waits at its lower right corner, clear of the needle.
+        let mut held = None;
+        match self.drag {
+            Some(Drag::Fader { track, .. }) => {
+                let v = s.project.mixer.iter().find(|m| m.index == track).and_then(|m| m.volume).unwrap_or(0.8);
+                me.control = Some((Control::Fader(track), v));
+                me.view = Some(View::Mixer);
+            }
+            Some(Drag::Knob { id, .. }) => {
+                let hit = self.hits.iter().rev().find(|h| h.action == Action::Knob(id));
+                me.view = match hit.and_then(|h| h.win) {
+                    Some(Win::Mixer) => Some(View::Mixer),
+                    Some(Win::ChannelRack) => Some(View::Rack),
+                    _ => None,
+                };
+                me.control = me.view.map(|_| (Control::Knob(id), f64::from(s.knob(id))));
+                held = hit.map(|h| (h.rect.right() - 1.0, h.rect.bottom() - 1.0));
+            }
+            _ => {}
+        }
         // A selecting box, in the editor it is drawn in.
         let pg = self.pl_grid.map(|grid| PGeom::new(s, grid));
         let rg = self.piano_grid.map(|grid| Geom::new(s, grid));
@@ -154,20 +251,42 @@ impl App {
             _ => {}
         }
         // The pointer, over the editor on top under it (or the one a gesture runs in).
-        let (x, y) = self.mouse;
+        let (x, y) = held.unwrap_or(self.mouse);
         let over = self.top_hit(x, y).and_then(|h| h.win);
         let view = me.view.or(match over {
             Some(Win::Playlist) if self.pl_grid.is_some_and(|g| g.contains(x, y)) => Some(View::Playlist),
             Some(Win::PianoRoll) if self.piano_grid.is_some_and(|g| g.contains(x, y)) => Some(View::Piano),
+            Some(Win::ChannelRack) if self.rack_grid().is_some_and(|g| g.contains(x, y)) => Some(View::Rack),
+            Some(Win::Mixer) if self.mixer_grid().is_some_and(|g| g.contains(x, y)) => Some(View::Mixer),
             _ => None,
         });
         me.pointer = match (view, &pg, &rg) {
             (Some(View::Playlist), Some(g), _) => Some(playlist_at(g, (x, y))),
             (Some(View::Piano), _, Some(g)) => Some(piano_at(g, (x, y))),
+            (Some(View::Rack), ..) => rack::point_at(s, (x, y)).map(|[k, row]| [fine(k, 100.0), fine(row, 1000.0)]),
+            (Some(View::Mixer), ..) => mixer_at(&self.hits, (x, y)),
             _ => None,
         };
-        me.view = view.filter(|_| me.pointer.is_some() || !me.ghosts.is_empty() || me.band.is_some());
+        let win = match view {
+            Some(View::Rack) => Some(Win::ChannelRack),
+            Some(View::Mixer) => Some(Win::Mixer),
+            _ => None,
+        };
+        let on = |r: Rect| [fine(f64::from((x - r.x) / r.w.max(1.0)), 1000.0), fine(f64::from((y - r.y) / r.h.max(1.0)), 1000.0)];
+        me.over = (self.top_hit(x, y).filter(|h| win.is_some() && h.win == win && me.pointer.is_some()))
+            .and_then(|h| Some((Control::of(&h.action)?, on(h.rect))));
+        me.view = view.filter(|_| me.pointer.is_some() || !me.ghosts.is_empty() || me.band.is_some() || me.control.is_some());
         me
+    }
+
+    /// The rack's rows panel, when the rack shows.
+    fn rack_grid(&self) -> Option<Rect> {
+        self.state.shown(Win::ChannelRack).then(|| rack::panel(rack::rect(&self.state)))
+    }
+
+    /// The mixer's strips as last painted.
+    fn mixer_grid(&self) -> Option<Rect> {
+        self.hits.iter().find(|h| h.action == Action::MixerArea).map(|h| h.rect)
     }
 }
 
@@ -187,6 +306,7 @@ struct Shown {
     pointer: Option<[f64; 2]>,
     ghosts: Vec<[f64; 3]>,
     band: Option<[f64; 4]>,
+    value: Option<f64>,
 }
 
 #[derive(Default)]
@@ -207,7 +327,8 @@ fn same_place(a: &Presence, b: &Presence) -> bool {
         && match a.view {
             Some(View::Playlist) => a.arrangement == b.arrangement,
             Some(View::Piano) => (a.pattern, a.channel) == (b.pattern, b.channel),
-            None => true,
+            Some(View::Rack) => a.pattern == b.pattern,
+            Some(View::Mixer) | None => true,
         }
 }
 
@@ -278,16 +399,18 @@ fn ease<const N: usize>(shown: &mut [f64; N], target: [f64; N], unit: [usize; N]
 
 /// `shown` a step of `k` on toward `state`, in the editor it is in at that editor's scale (`scales`, by view); at once
 /// when that editor is not painted.
-fn step(state: &Presence, shown: &mut Shown, k: f64, scales: [Option<Scale>; 2]) {
+fn step(state: &Presence, shown: &mut Shown, k: f64, scales: [Option<Scale>; 4]) {
+    let value = state.control.map(|c| c.1).filter(|v| sane(*v));
     let Some(scale) = state.view.and_then(|v| scales[v as usize]) else {
-        (shown.pointer, shown.ghosts, shown.band) = (state.pointer, state.ghosts.clone(), state.band);
+        (shown.pointer, shown.ghosts, shown.band, shown.value) = (state.pointer, state.ghosts.clone(), state.band, value);
         return;
     };
     match (&mut shown.pointer, state.pointer) {
         (Some(at), Some(to)) => ease(at, to, [0, 1], k, scale),
         (at, to) => *at = to,
     }
-    if shown.ghosts.len() == state.ghosts.len() {
+    // Painted steps stay on their steps.
+    if shown.ghosts.len() == state.ghosts.len() && state.view != Some(View::Rack) {
         for (at, &to) in shown.ghosts.iter_mut().zip(&state.ghosts) {
             ease(at, to, [0, 1, 0], k, scale);
         }
@@ -296,6 +419,10 @@ fn step(state: &Presence, shown: &mut Shown, k: f64, scales: [Option<Scale>; 2])
     }
     match (&mut shown.band, state.band) {
         (Some(at), Some(to)) => ease(at, to, [0, 1, 0, 1], k, scale),
+        (at, to) => *at = to,
+    }
+    match (&mut shown.value, value) {
+        (Some(at), Some(to)) if (to - *at).abs() > 0.002 => *at += (to - *at) * k,
         (at, to) => *at = to,
     }
 }
@@ -308,6 +435,8 @@ impl App {
         let (grid, tick, row) = match view {
             View::Playlist => (self.pl_grid?, f64::from(s.playlist_bar_w) / (ppq * 4.0), f64::from(s.playlist.row_h)),
             View::Piano => (self.piano_grid?, f64::from(s.piano.px_per_beat) / ppq, f64::from(s.piano.row_h)),
+            View::Rack => (self.rack_grid()?, f64::from(rack::STEP_W), f64::from(rack::ROW_H)),
+            View::Mixer => (self.mixer_grid()?, f64::from(mixer::STRIP_W), 1.0),
         };
         Some(Scale { tick, row, view: (f64::from(grid.w), f64::from(grid.h)) })
     }
@@ -316,7 +445,7 @@ impl App {
     /// again, not the editors around them.
     pub(crate) fn ease_marks(&mut self) {
         let now = crate::time::Instant::now();
-        let scales = [self.scale(View::Playlist), self.scale(View::Piano)];
+        let scales = [View::Playlist, View::Piano, View::Rack, View::Mixer].map(|v| self.scale(v));
         // The list as drawn when it changed since, and the people whose marks moved, with where they were.
         let (drawn, moved) = PEERS.with_borrow_mut(|peers| {
             let dt = peers.last.map_or(0.0, |t| now.duration_since(t).as_secs_f64()).min(0.1);
@@ -339,6 +468,7 @@ impl App {
         let s = &self.state;
         let pl = self.pl_grid.map(|grid| (PGeom::new(s, grid), doc::clip_ids(pl::clips(s))));
         let rg = self.piano_grid.map(|grid| (Geom::new(s, grid), doc::note_ids(piano::notes(s))));
+        let (rk, mx, hits) = (self.rack_grid(), self.mixer_grid(), &self.hits);
         // Outlines follow the selections, which change only with the list.
         let outlines = drawn.is_some();
         let mut areas = Vec::new();
@@ -346,6 +476,8 @@ impl App {
             let marks = [
                 pl.as_ref().and_then(|(g, ids)| Some((playlist_marks(s, g, ids, &peer.state, shown)?, g.grid))),
                 rg.as_ref().and_then(|(g, ids)| Some((piano_marks(s, g, ids, &peer.state, shown)?, g.grid))),
+                rk.and_then(|g| Some((rack_marks(s, hits, &peer.state, shown)?, g))),
+                mx.and_then(|g| Some((mixer_marks(hits, g, &peer.state, shown)?, g))),
             ];
             for (mut m, grid) in marks.into_iter().flatten() {
                 if !outlines {
@@ -370,12 +502,17 @@ impl App {
     }
 }
 
-/// One person's marks in an editor, on screen: the ghosts of what they drag, outlines around what they selected, their
-/// selecting box and the tip of their pointer.
+/// One person's marks in an editor, on screen: the ghosts of what they drag (and of the steps they clear), outlines
+/// around what they selected, their selecting box, the control they turn with its knob's needle (from its centre),
+/// and the tip of their pointer.
+#[derive(Default)]
 struct Marks {
     ghosts: Vec<Rect>,
+    hollow: Vec<Rect>,
     outlines: Vec<Rect>,
     band: Option<Rect>,
+    ring: Option<(Rect, f32)>,
+    needle: Option<[(f32, f32); 2]>,
     tip: Option<(f32, f32)>,
 }
 
@@ -384,9 +521,13 @@ impl Marks {
     fn area(&self, tag: Option<(f32, f32)>, grid: Rect, out: &mut Vec<Rect>) {
         let mut add = |r: Rect| out.push(r.intersect(&grid.outset(2.0)));
         // Ghosts' and boxes' edges are 1.5 px lines on their rects, outlines 2 px lines 2 px outside theirs.
-        self.ghosts.iter().for_each(|r| add(r.outset(2.0)));
+        self.ghosts.iter().chain(&self.hollow).for_each(|r| add(r.outset(2.0)));
         self.outlines.iter().for_each(|r| add(r.outset(4.0)));
         self.band.into_iter().for_each(|r| add(r.outset(2.0)));
+        self.ring.into_iter().for_each(|(r, _)| add(r.outset(2.0)));
+        if let Some([(x0, y0), (x1, y1)]) = self.needle {
+            add(Rect::span(x0.min(x1), x0.max(x1), y0.min(y1), y0.max(y1)).outset(3.0));
+        }
         if let Some((x, y)) = self.tip {
             // The arrow with its white edge and shadow, then the tag.
             add(Rect::new(x - 2.0, y - 2.0, 17.0, 24.0));
@@ -426,6 +567,7 @@ fn playlist_marks(s: &State, g: &PGeom, ids: &[String], state: &Presence, shown:
             .collect(),
         band: shown.band.filter(|b| here && b.iter().all(|x| sane(*x))).map(|b| band_rect(b, x, y)),
         tip: shown.pointer.filter(|p| here && p.iter().all(|x| sane(*x))).map(|[t, row]| (x(t), y(row))),
+        ..Marks::default()
     })
 }
 
@@ -450,7 +592,116 @@ fn piano_marks(s: &State, g: &Geom, ids: &[String], state: &Presence, shown: &Sh
             .collect(),
         band: shown.band.filter(|b| here && b.iter().all(|x| sane(*x))).map(|b| band_rect(b, x, y)),
         tip: shown.pointer.filter(|p| here && p.iter().all(|x| sane(*x))).map(|[t, row]| (x(t), y(row))),
+        ..Marks::default()
     })
+}
+
+/// The hit rect of `action` in `win` as last painted (`hits`).
+fn hit(hits: &[Hit], action: &Action, win: Win) -> Option<Rect> {
+    hits.iter().rev().find(|h| h.win == Some(win) && h.action == *action).map(|h| h.rect)
+}
+
+type Xy = (f32, f32);
+
+/// `tip`, the pointer of `state` mapped by `at`, put on the control it is over when that control is in `win` here
+/// (`hits`): by as much as the control sits elsewhere against `at`'s mapping.
+fn on_control(tip: Option<Xy>, state: &Presence, hits: &[Hit], win: Win, at: impl Fn([f64; 2]) -> Option<Xy>) -> Option<Xy> {
+    let (Some((x, y)), Some((c, [fx, fy])), Some(p)) = (tip, state.over, state.pointer) else { return tip };
+    let (Some(r), Some((px, py)), true) = (hit(hits, &c.action(), win), at(p), sane(fx) && sane(fy)) else { return tip };
+    Some((x + r.x + fx.clamp(0.0, 1.0) as f32 * r.w - px, y + r.y + fy.clamp(0.0, 1.0) as f32 * r.h - py))
+}
+
+/// Knob `id` lit in `win` (`hits`), with its needle at value `v` (0..1): from 135° on through 270°, as the knobs draw.
+fn knob(m: &mut Marks, hits: &[Hit], id: KnobId, v: f64, win: Win) {
+    let Some(r) = hit(hits, &Action::Knob(id), win) else { return };
+    let a = std::f32::consts::PI * (0.75 + 1.5 * v.clamp(0.0, 1.0) as f32);
+    let (cx, cy, len) = (r.cx(), r.cy(), r.w.min(r.h) / 2.0);
+    m.ring = Some((r.outset(1.0), len + 1.0));
+    m.needle = Some([(cx, cy), (cx + len * a.cos(), cy + len * a.sin())]);
+}
+
+/// Where `state`'s marks are in the channel rack when shown at `shown` (`hits`: as last painted); None on another
+/// pattern.
+fn rack_marks(s: &State, hits: &[Hit], state: &Presence, shown: &Shown) -> Option<Marks> {
+    if state.view != Some(View::Rack) || state.pattern != Some(s.pattern) {
+        return None;
+    }
+    let at = |p: [f64; 2]| rack::point_xy(s, p).filter(|_| p.iter().all(|x| sane(*x)));
+    let mut m = Marks { tip: on_control(shown.pointer.and_then(at), state, hits, Win::ChannelRack, at), ..Marks::default() };
+    for &[k, row, on] in shown.ghosts.iter().filter(|v| v.iter().all(|x| sane(*x) && *x >= 0.0)) {
+        if let Some(r) = rack::step_rect(s, row as usize, k as u32) {
+            if on >= 0.5 { m.ghosts.push(r) } else { m.hollow.push(r) }
+        }
+    }
+    if let (Some((Control::Knob(id), _)), Some(v)) = (state.control, shown.value) {
+        knob(&mut m, hits, id, v, Win::ChannelRack);
+    }
+    Some(m)
+}
+
+/// Where `state`'s marks are over the mixer's strips (`grid`) when shown at `shown` (`hits`: as last painted). A strip
+/// scrolled under the level scale and the master strip shows none.
+fn mixer_marks(hits: &[Hit], grid: Rect, state: &Presence, shown: &Shown) -> Option<Marks> {
+    if state.view != Some(View::Mixer) {
+        return None;
+    }
+    let master = strips(hits).find(|s| s.0 == 0).map(|s| s.1);
+    let seen = |x: f32| x >= grid.x + mixer::INSERTS_X || master.is_some_and(|r| x >= r.x && x < r.right());
+    let strip = |n: u16| strips(hits).find(|s| s.0 == n).map(|s| s.1);
+    let at = |[t, y]: [f64; 2]| {
+        let n = t.floor();
+        let ok = sane(y) && (0.0..65536.0).contains(&t);
+        Some(mixer::strip_xy(strip(n as u16).filter(|_| ok)?, ((t - n) as f32, y as f32)))
+    };
+    let tip = on_control(shown.pointer.and_then(at), state, hits, Win::Mixer, at).filter(|p| seen(p.0));
+    let mut m = Marks { tip, ..Marks::default() };
+    match (state.control, shown.value) {
+        (Some((Control::Fader(n), _)), Some(v)) => {
+            if let (Some(st), Some(fr)) = (strip(n), hit(hits, &Action::Fader(n), Win::Mixer).filter(|r| seen(r.cx()))) {
+                let y = mixer::fader_y(st, v as f32);
+                m.ring = Some((fr.outset(1.0), 4.0));
+                m.ghosts.push(Rect::new(fr.cx() - 7.0, y - 11.0, 14.0, 23.0));
+            }
+        }
+        (Some((Control::Knob(id), _)), Some(v)) => knob(&mut m, hits, id, v, Win::Mixer),
+        _ => {}
+    }
+    m.ring = m.ring.filter(|(r, _)| seen(r.cx()));
+    m.needle = m.needle.filter(|n| seen(n[0].0));
+    Some(m)
+}
+
+/// The others in the channel rack on the same pattern, after its rows: the steps they paint, the knob they turn and
+/// their pointers.
+pub(crate) fn draw_rack(ui: &mut Ui, s: &State) {
+    PEERS.with_borrow(|peers| {
+        if peers.list.is_empty() {
+            return;
+        }
+        let radius = if crate::views::lemon(ui) { 3.0 } else { 2.0 };
+        for peer in &peers.list {
+            if let Some(marks) = rack_marks(s, &ui.hits[..], &peer.state, &peer.shown) {
+                paint(ui, peer, marks, radius);
+            }
+        }
+    });
+}
+
+/// The others over the mixer's strips (`grid`), after its cables: the fader or knob they turn and their pointers.
+pub(crate) fn draw_mixer(ui: &mut Ui, grid: Rect) {
+    PEERS.with_borrow(|peers| {
+        if peers.list.is_empty() {
+            return;
+        }
+        let radius = if crate::views::lemon(ui) { 5.0 } else { 3.0 };
+        ui.c.push_clip(grid);
+        for peer in &peers.list {
+            if let Some(marks) = mixer_marks(&ui.hits[..], grid, &peer.state, &peer.shown) {
+                paint(ui, peer, marks, radius);
+            }
+        }
+        ui.c.pop_clip();
+    });
 }
 
 /// The others in the playlist, after its clips: the ghosts of their drags, outlines around their selected clips,
@@ -491,9 +742,10 @@ pub(crate) fn draw_piano(ui: &mut Ui, s: &State, g: &Geom) {
 /// The arrow of a pointer, its tip at (0, 0).
 const ARROW: [(f32, f32); 7] = [(0.0, 0.0), (0.0, 16.0), (4.5, 12.2), (7.6, 18.6), (10.4, 17.3), (7.3, 11.0), (12.5, 11.0)];
 
-/// One person's marks in their colour: ghosts (their colour at 28 %, the edge at 85 %), outlines (2 px), the selecting
-/// box (dashed), then the pointer with a name tag.
-fn paint(ui: &mut Ui, peer: &Peer, Marks { ghosts, outlines, band, tip }: Marks, radius: f32) {
+/// One person's marks in their colour: ghosts (their colour at 28 %, the edge at 85 %; only the edge for cleared
+/// steps), outlines (2 px), the selecting box (dashed), the control turned (2 px) with its knob's needle, then the
+/// pointer with a name tag.
+fn paint(ui: &mut Ui, peer: &Peer, Marks { ghosts, hollow, outlines, band, ring, needle, tip }: Marks, radius: f32) {
     let c = peer.color;
     // Far off-screen items are cut to near the view, keeping their edges there.
     let near = ui.c.clip_rect().outset(8.0);
@@ -502,11 +754,20 @@ fn paint(ui: &mut Ui, peer: &Peer, Marks { ghosts, outlines, band, tip }: Marks,
         ui.c.fill_rrect(r, radius, c.with_alpha(71));
         ui.c.stroke_rrect(r, radius, 1.5, c.with_alpha(217));
     }
+    for r in hollow.into_iter().filter_map(cut) {
+        ui.c.stroke_rrect(r, radius, 1.5, c.with_alpha(217));
+    }
     for r in outlines.into_iter().filter_map(cut) {
         ui.c.stroke_rrect(r.outset(2.0), radius + 1.0, 2.0, c);
     }
     if let Some(r) = band.and_then(cut) {
         dashed(ui, r, c);
+    }
+    if let Some((r, rr)) = ring {
+        ui.c.stroke_rrect(r, rr, 2.0, c);
+    }
+    if let Some([(x0, y0), (x1, y1)]) = needle {
+        ui.c.line(x0, y0, x1, y1, 2.5, c);
     }
     let Some((x, y)) = tip else { return };
     let at = |dx: f32, dy: f32| ARROW.iter().map(|&(px, py)| (x + px + dx, y + py + dy)).collect::<Vec<_>>();
