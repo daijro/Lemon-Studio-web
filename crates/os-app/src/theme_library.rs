@@ -14,7 +14,7 @@ use crate::dialog::Field;
 use crate::views::settings::{SAct, THEME};
 use os_theme::{fl, Color, FlTheme, Palette};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// The user's themes folder (`themes` in the user folder; in tests, under the test's theme folder).
 pub fn user_dir() -> Option<PathBuf> {
