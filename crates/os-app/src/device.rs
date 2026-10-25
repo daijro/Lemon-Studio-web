@@ -845,7 +845,28 @@ fn build_any(device: &cpal::Device, format: SampleFormat, config: &StreamConfig,
     }
 }
 
-fn build<T>(device: &cpal::Device, config: &StreamConfig, mut mix: Mix, errors: Errors) -> Result<cpal::Stream, String>
+fn build<T>(device: &cpal::Device, config: &StreamConfig, mix: Mix, errors: Errors) -> Result<cpal::Stream, String>
+where
+    T: SizedSample + FromSample<f32>,
+{
+    // Browser: the AudioWorklet's context is made on the page's thread (the audio worker asks it to), which then shows
+    // when the browser holds it suspended and resumes it on the next click or key.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (device, config) = (device.clone(), config.clone());
+        crate::web::audio::dispatch(move || {
+            let stream = build_here::<T>(&device, &config, mix, errors);
+            if let Ok(s) = &stream {
+                crate::web::audio::watch(s);
+            }
+            stream
+        })
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    build_here::<T>(device, config, mix, errors)
+}
+
+fn build_here<T>(device: &cpal::Device, config: &StreamConfig, mut mix: Mix, errors: Errors) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
 {
