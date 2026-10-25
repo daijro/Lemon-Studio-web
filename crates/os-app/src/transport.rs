@@ -1888,9 +1888,16 @@ impl Renderer {
             f.fill(0);
         }
         if self.tap {
-            let now = Instant::now();
-            self.shared.ahead.record(self.queue.queued() / 2, self.asked.map(|t| now - t));
-            self.asked = Some(now);
+            // Browser: this runs in the AudioWorklet's scope, which has no clock (web_time panics there): the blocks
+            // are counted without the time between them.
+            #[cfg(target_arch = "wasm32")]
+            self.shared.ahead.record(self.queue.queued() / 2, None);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let now = Instant::now();
+                self.shared.ahead.record(self.queue.queued() / 2, self.asked.map(|t| now - t));
+                self.asked = Some(now);
+            }
         }
         let got = self.queue.pop(stereo);
         let ended = self.queue.ended.load(Ordering::Acquire);
