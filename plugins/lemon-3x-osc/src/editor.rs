@@ -1132,6 +1132,10 @@ mod gui {
 
     /// The open sample dialog: the desktop's own (through its portal on Linux; on macOS AppKit's, run on the main
     /// thread), as Lemon Sampler's.
+    #[cfg(target_arch = "wasm32")]
+    fn file_dialog(win: &Window) -> Option<String> { win.file_dialog(false) }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn file_dialog(win: &Window) -> Option<String> {
         if os_plugkit::no_modal() {
             return None;
