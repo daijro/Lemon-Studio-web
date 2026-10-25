@@ -6,6 +6,10 @@ import { join } from 'node:path';
 export async function checkFiles(page) {
   page.setDefaultTimeout(20000);
   page.on('dialog',d=>{d.accept();});
+  // Playwright intercepts file choosers only while a listener exists, and turns that on without waiting for it: a
+  // waitForEvent made just before the key that opens the chooser can lose that race on a slow runner (headless
+  // browsers then cancel the chooser at once). One listener for the whole check keeps interception on.
+  page.on('filechooser',()=>{});
   const snapshot=async()=>{
     const state=await page.waitForFunction(async()=>(await import('./os_app.js')).snapshot());
     return JSON.parse(await state.jsonValue());
