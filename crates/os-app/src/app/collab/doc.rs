@@ -286,9 +286,9 @@ impl Js for AutoMode {
 }
 
 /// A struct as an object of its fields, all of them: a field added to the model breaks the build here until it is
-/// shared or left out on purpose.
+/// shared or left out on purpose (after `;`: this person's, its default when read; `keep_local` puts theirs back).
 macro_rules! records {
-    ($($t:ty { $($f:ident),* $(,)? })*) => {$(
+    ($($t:ty { $($f:ident),* $(,)? $(; $($local:ident),* $(,)?)? })*) => {$(
         impl Js for $t {
             fn js(&self) -> Value {
                 let mut m = Map::new();
@@ -296,7 +296,7 @@ macro_rules! records {
                 Value::Object(m)
             }
             fn read(v: &Value) -> Option<Self> {
-                Some(Self { $($f: Js::read(v.get(stringify!($f))?)?),* })
+                Some(Self { $($f: Js::read(v.get(stringify!($f))?)?,)* $($($local: Default::default(),)*)? })
             }
         }
     )*};
@@ -314,7 +314,7 @@ records! {
     LayerSettings { flags, crossfade }
     ChannelMisc {
         levels, max_poly, slide, porta, mono, gate, shift, swing, full_porta, tracking, cut, cut_by, arp, echo, root,
-        main_pitch, add_key, fine, key_range, layer,
+        main_pitch, add_key, fine, key_range, layer, pitch_range,
     }
     SampleFx {
         flags, boost, fade_out, fade_in, stereo_delay, pogo, feedback, cutoff, resonance, ring_mix, ring_freq, reverb,
@@ -328,11 +328,13 @@ records! {
     }
     Note { position, length, channel, key, fine_pitch, release, pan, velocity, mod_x, mod_y, flags, group, unk14, repeat }
     ControlPoint { position, kind, value }
-    TimeMarker { position, kind, name, numerator, denominator }
+    TimeMarker { position, kind, name, numerator, denominator, scale }
     SlotPlugin { name, state }
     MixerTrack {
         index, name, color, enabled, slots, routes, send_levels, volume, pan, stereo_separation, polarity, swap,
-        slots_enabled, slot_on, slot_mix, eq,
+        slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon;
+        // The file's track block it came from.
+        origin
     }
     Clip { position, length, track, source, muted, window, raw }
     PlaylistTrack { number, name, color, enabled, grouped, collapsed, locked }
