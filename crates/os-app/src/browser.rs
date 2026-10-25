@@ -244,7 +244,7 @@ impl App {
 
     /// A press on the browser's splitter: drags it; a double click gives the browser its default width (spec §9).
     fn browser_split_press(&mut self) {
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
         let s = &mut self.state;
         let double = s.browser_split_click.is_some_and(|t| now.duration_since(t).as_millis() < 400);
         s.browser_split_click = if double { None } else { Some(now) };
@@ -268,7 +268,7 @@ impl App {
     }
 
     /// A hovered row's scrolling label (spec §9): repainted whenever its offset moves; the scroll ends with the hover.
-    pub(crate) fn marquee_tick(&mut self, now: std::time::Instant) {
+    pub(crate) fn marquee_tick(&mut self, now: crate::time::Instant) {
         let hovered = self.state.show_browser && matches!(self.hover, Some(Action::BrowserRow(_)));
         let m = self.state.browser_marquee.get_mut();
         let Some(mq) = m.as_ref() else { return };
@@ -730,6 +730,8 @@ pub fn row_menu(s: &crate::app::State, row: &view::Row) -> Vec<PItem> {
     }
     if let Some(path) = &row.path {
         sep(&mut items);
+        // Browser: no file manager to open.
+        #[cfg(not(target_arch = "wasm32"))]
         items.push(if row.open.is_some() { r(FILE_MANAGER[0], RowCmd::OpenFolder) } else { r(FILE_MANAGER[1], RowCmd::ShowInFolder) });
         if s.browser_folders.contains(path) && row.key == view::disk_key(path) {
             items.extend([r("Rename...", RowCmd::Rename), r("Remove from browser", RowCmd::Remove)]);

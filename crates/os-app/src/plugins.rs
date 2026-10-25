@@ -239,7 +239,7 @@ pub struct Plugins {
     /// The preset file each instance last loaded or saved (spec: plugins/presets.md), by `hosted` key.
     pub presets: BTreeMap<usize, PathBuf>,
     /// Presets dropped where a new instance is being made: they load once it is hosted (`presets::pending_tick`).
-    pub preset_waits: Vec<(usize, PathBuf, std::time::Instant)>,
+    pub preset_waits: Vec<(usize, PathBuf, Instant)>,
     /// Plugins (uids) whose file the last scan no longer found: not listed, kept so indices stay valid.
     pub missing: HashSet<String>,
     /// The file and stamp each found plugin was listed from (uid -> path, size, time): an unchanged file keeps its

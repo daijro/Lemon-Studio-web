@@ -477,7 +477,7 @@ pub struct Transport {
     instruments: Instruments,
     shared: Arc<Shared>,
     /// The audio thread: joined when the transport goes (see `Drop`).
-    thread: Option<std::thread::JoinHandle<()>>,
+    thread: Option<crate::thread::JoinHandle<()>>,
 }
 
 impl Transport {
