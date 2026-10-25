@@ -9618,9 +9618,8 @@ impl App {
             (0, FILE_OPEN) => return self.ask_discard("opening another project", crate::dialog::Next::OpenDialog),
             #[cfg(target_arch = "wasm32")]
             (0, FILE_OPEN) => return crate::web::pick(self,crate::web::Import::Project),
-            // The browser's Open project folder..., the entry after Exit.
             #[cfg(target_arch = "wasm32")]
-            (0, i) if i == FILE_EXIT + 1 => return crate::web::pick(self,crate::web::Import::Folder),
+            (0, i) if item_at(0, i).is_some_and(|it| it.label == "Open project folder...") => return crate::web::pick(self,crate::web::Import::Folder),
             (0, FILE_SAVE) => return self.save(false),
             (0, FILE_SAVE_AS) => return self.save(true),
             (0, FILE_SAVE_VERSION) => return self.save_new_version(),

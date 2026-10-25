@@ -68,7 +68,7 @@ export async function checkFiles(page) {
   const portable=await mkdtemp(join(tmpdir(),'lemon-portable-'));
   try {
     await writeFile(join(portable,'song.flp'),importedFlp);await writeFile(join(portable,'piano.wav'),originalSample);
-    chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 17)');await (await chooser).setFiles(portable);
+    chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 20)');await (await chooser).setFiles(portable);
     await wait(s=>!s.loading&&s.channels===1&&s.message?.endsWith('/song.flp'));
     if((await snapshot()).hits.some(h=>h.action==='CloseWin(ChannelRack)'))await click('CloseWin(ChannelRack)');
     if(!(await snapshot()).hits.some(h=>h.action==='PianoGrid'))await click('ToggleWin(PianoRoll)');
