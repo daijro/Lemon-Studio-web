@@ -12,7 +12,7 @@ use crate::playlist::{Cmd, PItem};
 use crate::record::RecCmd;
 use crate::step_edit::Src;
 use os_model::Note;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// How long the log keeps a note.
 const KEEP: Duration = Duration::from_secs(30 * 60);

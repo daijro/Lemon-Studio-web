@@ -8,7 +8,7 @@
 // spec: ui/remote-control.md
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::app::{App, State};
 use crate::knobs::KnobId;

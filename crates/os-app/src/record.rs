@@ -134,7 +134,7 @@ pub fn run_on_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
 /// A recording count-in under way (spec §3): when it started, a beat's length in seconds, its beats.
 #[derive(Debug, Clone, Copy)]
 pub struct CountIn {
-    from: std::time::Instant,
+    from: crate::time::Instant,
     beat: f64,
     beats: u32,
 }
@@ -326,7 +326,7 @@ impl App {
         let s = &mut self.state;
         let tps = crate::score_log::ticks_per_second(s);
         let channels: Vec<u16> = s.project.channels.iter().map(|c| c.index).collect();
-        let mut new = s.rec.log.notes(minutes, std::time::Instant::now(), tps);
+        let mut new = s.rec.log.notes(minutes, crate::time::Instant::now(), tps);
         new.retain(|n| channels.contains(&n.channel));
         if new.is_empty() {
             return Some(format!("The score log has no notes from the last {minutes} minutes"));
@@ -402,7 +402,7 @@ impl App {
             let tempo = p.tick_tempo(p.tempo.unwrap_or(140.0).max(1.0));
             let beat = f64::from(p.beat_ticks()) / f64::from(p.ppq.max(1)) * 60.0 / tempo;
             let beats = bars * u32::from(p.bar().0.max(1));
-            self.state.rec.count = Some(CountIn { from: std::time::Instant::now(), beat, beats });
+            self.state.rec.count = Some(CountIn { from: crate::time::Instant::now(), beat, beats });
             self.state.rec.shown = beats;
         }
     }
@@ -529,7 +529,7 @@ impl App {
     pub(crate) fn record_down_with(&mut self, src: Src, key: u16, velocity: u8, extra: Extra) {
         let target = extra.channel.or_else(|| crate::piano::channel(&self.state));
         if let Some(channel) = target {
-            self.state.rec.log.down(src, key, velocity, channel, std::time::Instant::now());
+            self.state.rec.log.down(src, key, velocity, channel, crate::time::Instant::now());
         }
         self.start_on_input(Opt::Notes);
         if !self.rec_live(Opt::Notes) {
@@ -550,7 +550,7 @@ impl App {
 
     /// A note went up: written when it was being recorded.
     pub(crate) fn record_up_with(&mut self, src: Src, release: Option<u8>) {
-        self.state.rec.log.up(src, std::time::Instant::now());
+        self.state.rec.log.up(src, crate::time::Instant::now());
         let r = &mut self.state.rec;
         let Some(i) = r.held.iter().position(|h| h.src == src) else { return };
         let mut h = r.held.remove(i);
