@@ -12,7 +12,7 @@
 use std::any::Any;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use os_plugkit::time::Instant;
 
 use nih_plug::prelude::*;
 use os_engine::effects::reverb::{self as dsp, PARAMS};
