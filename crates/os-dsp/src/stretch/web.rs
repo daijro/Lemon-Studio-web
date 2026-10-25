@@ -27,6 +27,7 @@ unsafe extern "C" {
         output: *mut f32,
         out_frames: usize,
     ) -> bool;
+    fn signalsmith_stretch_flush(p: *mut c_void, output: *mut f32, out_frames: usize);
 }
 // C++ delete has no layout; keep the allocation size in an aligned prefix.
 #[unsafe(no_mangle)]
@@ -124,6 +125,10 @@ impl Stretch {
                 output.len() / self.channels,
             )
         }
+    }
+    pub fn flush(&mut self, output: &mut [f32]) {
+        assert_eq!(output.len() % self.channels, 0);
+        unsafe { signalsmith_stretch_flush(self.inner, output.as_mut_ptr(), output.len() / self.channels) }
     }
 }
 impl Drop for Stretch {
