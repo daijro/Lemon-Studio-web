@@ -8527,7 +8527,7 @@ impl App {
             #[cfg(target_arch = "wasm32")]
             (0, FILE_OPEN) => crate::web::pick(self,crate::web::Import::Project),
             #[cfg(target_arch = "wasm32")]
-            (0, 17) => crate::web::pick(self,crate::web::Import::Folder),
+            (0, i) if item_at(0, i).is_some_and(|it| it.label == "Open project folder...") => crate::web::pick(self,crate::web::Import::Folder),
             (0, FILE_SAVE) => self.save(false),
             (0, FILE_EXPORT) => self.open_export(false),
             (0, FILE_EXPORT_MP3) => self.open_export(true),

@@ -68,7 +68,7 @@ export async function checkFiles(page) {
   const portable=await mkdtemp(join(tmpdir(),'lemon-portable-'));
   try {
     await writeFile(join(portable,'song.flp'),importedFlp);await writeFile(join(portable,'piano.wav'),originalSample);
-    chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 17)');await (await chooser).setFiles(portable);
+    chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 19)');await (await chooser).setFiles(portable);
     await wait(s=>!s.loading&&s.channels===1&&s.message?.endsWith('/song.flp'));
     if((await snapshot()).hits.some(h=>h.action==='CloseWin(ChannelRack)'))await click('CloseWin(ChannelRack)');
     if(!(await snapshot()).hits.some(h=>h.action==='PianoGrid'))await click('ToggleWin(PianoRoll)');
@@ -78,7 +78,7 @@ export async function checkFiles(page) {
     assert.ok(peak>0.001,'Reopened downloaded project must resolve its imported sample');
   } finally {await rm(portable,{recursive:true,force:true});}
   // Folder import retains both same-named samples and unavailable native plugin bytes.
-  chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 17)');await (await chooser).setFiles(process.env.WEB_FILE_FIXTURE??'target/web-files');
+  chooser=page.waitForEvent('filechooser');await click('Menu(0)');await click('MenuItem(0, 19)');await (await chooser).setFiles(process.env.WEB_FILE_FIXTURE??'target/web-files');
   await wait(s=>!s.loading&&s.channels===6);const folderDownload=await save();const folderFlp=await readFile(await folderDownload.path());
   assert.ok(folderFlp.includes(Buffer.from([173,219,52,222,239,157,6,210])),'Unavailable plugin state must survive');
   await wait(s=>!s.dirty&&s.message?.includes('Saved in this browser'));const samples=(await storage()).files;
