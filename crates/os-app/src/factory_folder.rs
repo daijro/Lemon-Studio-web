@@ -45,6 +45,14 @@ pub fn dir() -> Option<PathBuf> {
     chosen().or_else(os_engine::SampleLibrary::default_factory_dir)
 }
 
+/// Where FL Studio installs by default (`os_native`'s guess); none in the browser.
+pub fn fl_dir() -> PathBuf {
+    #[cfg(not(target_arch = "wasm32"))]
+    return os_native::default_fl_dir();
+    #[cfg(target_arch = "wasm32")]
+    PathBuf::new()
+}
+
 /// The path shown beside the folder button: the folder in use with a trailing separator, or `(not found)`.
 pub fn path_text() -> String {
     dir().map_or_else(|| NONE_TEXT.to_string(), |d| format!("{}{}", d.display(), std::path::MAIN_SEPARATOR))

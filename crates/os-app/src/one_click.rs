@@ -74,7 +74,7 @@ fn devices() -> Vec<(String, bool, u16)> {
     #[cfg(not(test))]
     {
         use std::sync::Mutex;
-        use std::time::{Duration, Instant};
+        use crate::time::{Duration, Instant};
         type Listed = Option<(Instant, Vec<(String, bool, u16)>)>;
         static CACHE: Mutex<Listed> = Mutex::new(None);
         let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());

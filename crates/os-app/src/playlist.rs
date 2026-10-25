@@ -3555,7 +3555,7 @@ pub fn press_ruler(app: &mut App, grid: Rect, right: bool) {
         app.drag = Some(Drag::Pl(PlDrag::TimeSel { t0: t }));
     } else {
         // A double click clears the time selection (a Lemon Studio choice, besides FL's right click).
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
         let double = s.playlist.last_ruler.is_some_and(|t| now.duration_since(t).as_millis() < 450);
         s.playlist.last_ruler = (!double).then_some(now);
         if double {

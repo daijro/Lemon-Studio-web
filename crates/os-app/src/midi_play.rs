@@ -10,7 +10,7 @@
 // spec: ui/midi-settings.md
 
 use std::collections::VecDeque;
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::app::App;
 use crate::midi_cfg::{self as cfg, CurveOf, Offset, Switch};

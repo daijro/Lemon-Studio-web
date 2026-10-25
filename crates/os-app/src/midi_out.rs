@@ -9,7 +9,7 @@
 // spec: ui/midi-settings.md §2, §7
 
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use crate::transport::{State, Watch};
 

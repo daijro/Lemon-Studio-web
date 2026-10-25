@@ -1015,7 +1015,7 @@ pub struct State {
     /// Width of the docked browser incl. its splitter, as dragged (`views::browser_w` keeps it in range), kept between
     /// runs, and the last press on the splitter, for its double click (spec: ui/browser.md §9).
     pub browser_w: f32,
-    pub browser_split_click: Option<std::time::Instant>,
+    pub browser_split_click: Option<crate::time::Instant>,
     /// The hovered row whose label is scrolling, as last painted (spec: ui/browser.md §9).
     pub browser_marquee: std::cell::RefCell<Option<views::browser::Marquee>>,
     /// Plugin parameter lists and the last tweaked parameters (spec: plugins/plugin-parameters.md).
@@ -1271,7 +1271,7 @@ pub struct App {
     /// Wrapped plugin channels (rows) and slots (`fx_key`) whose plugin was not found or did not start (not retried).
     pub(crate) wrap_failed: Vec<usize>,
     /// When the Lemon Trio instances were last looked at for a sample they loaded (`follow_osc3_samples`).
-    pub(crate) osc3_look: Option<std::time::Instant>,
+    pub(crate) osc3_look: Option<crate::time::Instant>,
     /// Plugin channels (rows) and slots (`fx_key`) naming a native plugin that is not installed or did not start
     /// (not retried; spec: plugins/fruity-abi.md "Opened projects").
     pub(crate) native_failed: Vec<usize>,
