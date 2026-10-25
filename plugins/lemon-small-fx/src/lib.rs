@@ -177,6 +177,7 @@ pub trait Kind: 'static + Send + Sync {
     const CLAP_DESCRIPTION: &'static str;
     const CLAP_FEATURES: &'static [ClapFeature];
     const VST3_CLASS_ID: [u8; 16];
+    #[cfg(not(target_arch = "wasm32"))]
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory];
 }
 
@@ -303,6 +304,7 @@ impl<K: Kind> ClapPlugin for SmallFx<K> {
     const CLAP_FEATURES: &'static [ClapFeature] = K::CLAP_FEATURES;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<K: Kind> Vst3Plugin for SmallFx<K> {
     const VST3_CLASS_ID: [u8; 16] = K::VST3_CLASS_ID;
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = K::VST3_SUBCATEGORIES;

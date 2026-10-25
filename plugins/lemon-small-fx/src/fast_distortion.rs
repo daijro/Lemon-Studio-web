@@ -131,6 +131,7 @@ impl Kind for FastDistortionKind {
     const CLAP_DESCRIPTION: &'static str = "Lemon Studio's fast distortion";
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Distortion, ClapFeature::Stereo];
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioFDist";
+    #[cfg(not(target_arch = "wasm32"))]
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Distortion];
 }
 
