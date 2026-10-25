@@ -104,7 +104,7 @@ fn presence_names_the_pointer_selection_and_drag_in_song_terms() {
     let mut a = App::new(None);
     let grid = Rect::new(300.0, 200.0, 800.0, 400.0);
     a.pl_grid = Some(grid);
-    a.hits.push(Hit { rect: grid, action: Action::PlaylistArea, hint: "".into(), win: Some(Win::Playlist), menu: 0 });
+    a.hits.push(Hit { rect: grid, action: Action::PlaylistArea, hint: "".into(), win: Some(Win::Playlist), menu: 0, reveal: None });
     pl::arr_mut(&mut a.state).clips.push(Clip::new(384, 384, 2, ClipSource::Pattern(1)));
     a.state.playlist.sel = vec![0];
     let g = PGeom::new(&a.state, grid);

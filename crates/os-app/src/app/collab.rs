@@ -230,6 +230,10 @@ fn keep_local(old: &Project, new: &mut Project) {
             (c.rack.origin, c.rack.locked, c.rack.zipped, c.rack.group) = (o.origin, o.locked, o.zipped, o.group);
         }
     }
+    // A mixer track's file block, by its number.
+    for t in &mut new.mixer {
+        t.origin = old.mixer.iter().find(|o| o.index == t.index).and_then(|o| o.origin);
+    }
     for p in &mut new.patterns {
         if let Some(o) = old.patterns.iter().find(|o| o.number == p.number && doc::pattern_value(o) == doc::pattern_value(p)) {
             p.clone_from(o);
