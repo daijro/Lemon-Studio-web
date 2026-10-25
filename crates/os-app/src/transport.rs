@@ -2769,9 +2769,16 @@ impl Renderer {
         }
         let idle = self.queue.queued() == 0 && self.queue.ended.load(Ordering::Acquire);
         if self.tap && !idle {
-            let now = Instant::now();
-            self.shared.ahead.record(self.queue.queued() / w as u64, self.asked.map(|t| now - t));
-            self.asked = Some(now);
+            // Browser: this runs in the AudioWorklet's scope, which has no clock (web_time panics there): the blocks
+            // are counted without the time between them.
+            #[cfg(target_arch = "wasm32")]
+            self.shared.ahead.record(self.queue.queued() / w as u64, None);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let now = Instant::now();
+                self.shared.ahead.record(self.queue.queued() / w as u64, self.asked.map(|t| now - t));
+                self.asked = Some(now);
+            }
         }
         // Where the block starts (the playback's position moves from here to its end while the device plays it).
         let from = self.queue.heard();
