@@ -162,7 +162,11 @@ try {
     await click('ToggleWin(PianoRoll)');
     const grid=(await snapshot()).hits.find(h=>h.action==='PianoGrid');
     await page.mouse.click(grid.rect[0]+40,grid.rect[1]+100); await page.waitForTimeout(300);
-    await click('Play'); let measuredPeak=0;
+    await click('Play');
+    // The output can take a while to start: a fresh browser's first AudioContext on CI's virtual sink renders a few
+    // blocks, then none for about 1.6 s. Playback is measured from when its position moves.
+    await page.waitForFunction(()=>JSON.parse(globalThis.lemonTestSnapshot()).audio.tick>0,null,{timeout:5000});
+    let measuredPeak=0;
     for(let i=0;i<24;i++){await page.waitForTimeout(50);measuredPeak=Math.max(measuredPeak,(await snapshot()).audio.peak);}
     const playing=await snapshot(); console.log('playing',playing.audio,playing.message);
     assert.ok(playing.audio.rendered>0,'AudioWorklet must render');
