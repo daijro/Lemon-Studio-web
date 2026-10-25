@@ -60,10 +60,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 # Export encoders (`export::encode`): FLAC (pure Rust), MP3 (LAME, built from source) and Ogg Vorbis (libvorbis, built
-# from source).
+# from source; not in the browser build, which exports WAV only).
 flacenc = "0.5"
-mp3lame-encoder = "0.2"
-vorbis_rs = "0.5"
 zip = { version = "9.1.2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -95,6 +93,8 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "objc2-core-graphics", "CALayer", "CAShapeLayer", "CATransaction"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mp3lame-encoder = "0.2"
+vorbis_rs = "0.5"
 os-native = { path = "../os-native" }
 os-vst3.workspace = true
 os-vst2.workspace = true
