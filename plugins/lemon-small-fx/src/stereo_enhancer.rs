@@ -161,6 +161,7 @@ impl Kind for StereoEnhancerKind {
     const CLAP_DESCRIPTION: &'static str = "Lemon Studio's stereo enhancer";
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Utility, ClapFeature::Mixing, ClapFeature::Stereo];
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioStEnh";
+    #[cfg(not(target_arch = "wasm32"))]
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Spatial];
 }
 
