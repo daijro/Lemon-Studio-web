@@ -28,7 +28,7 @@ pub fn record(app: &crate::App) {
     let rendered=app.transport.tap(&mut audio);
     let peak=audio.iter().copied().map(f32::abs).fold(0.0f32,f32::max);
     let notes: usize = app.state.project.patterns.iter().map(|p| p.notes.len()).sum();
-    SNAPSHOT.with_borrow_mut(|s| *s = serde_json::json!({"pluginLocked":TEST_LOCK_HELD.load(std::sync::atomic::Ordering::Acquire),"notes":notes,"loading":app.loading(),"dirty":app.unsaved(),"audio":{"state":format!("{:?}",app.transport.state()),"tick":app.transport.tick(),"rendered":rendered,"peak":peak,"underruns":app.transport.underruns()},"parameters":parameters,"hits":hits,"screen":app.state.screen,"message":app.state.message,"channels":app.state.project.channels.len()}).to_string());
+    SNAPSHOT.with_borrow_mut(|s| *s = serde_json::json!({"notes":notes,"loading":app.loading(),"dirty":app.unsaved(),"audio":{"state":format!("{:?}",app.transport.state()),"tick":app.transport.tick(),"rendered":rendered,"peak":peak,"underruns":app.transport.underruns()},"parameters":parameters,"hits":hits,"screen":app.state.screen,"message":app.state.message,"channels":app.state.project.channels.len()}).to_string());
 }
 #[cfg(feature = "web-test")]
 #[wasm_bindgen]
@@ -38,6 +38,11 @@ pub fn snapshot() -> String { SNAPSHOT.with_borrow(Clone::clone) }
 thread_local! { static TEST_PLUGIN: std::cell::RefCell<Option<os_host::SharedPlugin>> = const { std::cell::RefCell::new(None) }; }
 #[cfg(feature = "web-test")]
 static TEST_LOCK_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether `hold_plugin_lock` holds the instrument now: read live, as the snapshot is only as fresh as the last frame the
+/// app painted (an idle app paints none).
+#[cfg(feature = "web-test")]
+#[wasm_bindgen]
+pub fn plugin_lock_held() -> bool { TEST_LOCK_HELD.load(std::sync::atomic::Ordering::Acquire) }
 #[cfg(feature = "web-test")]
 #[wasm_bindgen]
 pub fn hold_plugin_lock(milliseconds: u32) {
