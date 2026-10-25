@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// A message from a controller, its MIDI channel 0..15 where it has one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

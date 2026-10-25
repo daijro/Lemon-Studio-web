@@ -8,6 +8,8 @@
 // Plugin windows exist on Windows, Linux and macOS (`plugin_window`): elsewhere what only they reach (the Misc tab, the
 // window and preset menus, their requests) is built but unused. Those builds still report real dead code.
 #![cfg_attr(not(plugin_windows), allow(dead_code))]
+// The pinned browser toolchain (nightly-2025-11-06) predates stable `if let` guards.
+#![cfg_attr(target_arch = "wasm32", feature(if_let_guard))]
 
 #[cfg(target_arch = "wasm32")]
 mod web;

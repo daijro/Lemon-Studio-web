@@ -9,7 +9,7 @@
 //!
 // spec: plugins/lemon-3x-osc.md §6 (app integration), plugins/3x-osc.md §1 (saved state, custom shape)
 
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_model::{Channel, ChannelKind, Project};
 

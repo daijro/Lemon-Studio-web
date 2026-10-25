@@ -778,7 +778,7 @@ pub fn max_scroll(s: &State) -> f32 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Marquee {
     pub key: String,
-    pub since: std::time::Instant,
+    pub since: crate::time::Instant,
     pub rect: Rect,
     pub over: f32,
     pub off: f32,
@@ -912,7 +912,7 @@ pub fn paint(ui: &mut Ui, s: &State, r: Rect) {
         let over = ui.c.text_width(f, &row.label) - w;
         // Hovered, a label that does not fit scrolls (§9) rather than being cut.
         if hov && over > 0.0 {
-            let now = std::time::Instant::now();
+            let now = crate::time::Instant::now();
             let since = s.browser_marquee.borrow().as_ref().filter(|m| m.key == row.key).map_or(now, |m| m.since);
             let off = marquee_offset(now.duration_since(since).as_secs_f32(), over);
             let lr = Rect::new(x + 25.0, y, w, ROW_H);
