@@ -11,6 +11,7 @@ export async function checkFiles(page) {
     return JSON.parse(await state.jsonValue());
   };
   const wait=async(predicate)=>{const end=Date.now()+20000;let state;while(!predicate(state=await snapshot())){assert.ok(Date.now()<end,`Timed out: ${predicate}; ${JSON.stringify({notes:state.notes,channels:state.channels,dirty:state.dirty,message:state.message})}`);await page.waitForTimeout(25);}};
+  const locked=()=>page.waitForFunction(async()=>(await import('./os_app.js')).plugin_lock_held(),null,{timeout:20000});
   const click=async(action,options)=>{const s=await snapshot(),h=s.hits.findLast(h=>h.action===action||h.hint===action);assert.ok(h,`Missing ${action}`);const[x,y,w,z]=h.rect;await page.mouse.click(x+w/2,y+z/2,options);await page.waitForTimeout(150);};
   const note=async(offset)=>{const h=(await snapshot()).hits.find(h=>h.action==='PianoGrid');await page.mouse.click(h.rect[0]+offset,h.rect[1]+100);await page.waitForTimeout(150);};
   const save=async()=>{const done=page.waitForEvent('download');await page.keyboard.press('Control+s');return done;};
@@ -21,9 +22,9 @@ export async function checkFiles(page) {
   await click('ToggleWin(PianoRoll)');await note(40);await wait(s=>s.notes===1);
   // Saving must remain responsive when the audio worker owns an instrument during completion.
   await page.evaluate(()=>{globalThis.originalTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(...args){const tx=originalTransaction.apply(this,args);if(args[1]==='readwrite'){const until=performance.now()+1000,store=tx.objectStore('workspace');const keep=()=>{if(performance.now()<until)store.get('current').onsuccess=keep;};keep();}return tx;};});
-  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await wait(s=>s.pluginLocked);
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await locked();
   const downloaded=await save();
-  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(2000);});await wait(s=>s.pluginLocked);const flp=await readFile(await downloaded.path());assert.equal(flp.subarray(0,4).toString(),'FLhd');
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(2000);});await locked();const flp=await readFile(await downloaded.path());assert.equal(flp.subarray(0,4).toString(),'FLhd');
   await wait(s=>!s.dirty&&s.message?.includes('Saved in this browser'));
   await page.evaluate(()=>IDBDatabase.prototype.transaction=originalTransaction);
   const good=await storage();
@@ -44,7 +45,7 @@ export async function checkFiles(page) {
   await save();await note(200);await wait(s=>s.notes===3);
   await wait(s=>s.message?.startsWith('Earlier version saved'));
   assert.equal((await snapshot()).dirty,true);await page.evaluate(()=>IDBDatabase.prototype.transaction=originalTransaction);
-  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await wait(s=>s.pluginLocked);
+  await page.evaluate(async()=>{(await import('./os_app.js')).hold_plugin_lock(500);});await locked();
   const exported=page.waitForEvent('download');await page.keyboard.press('Control+r');const wav=await readFile(await (await exported).path());
   assert.equal(wav.subarray(0,4).toString(),'RIFF');assert.equal(wav.readUInt32LE(24),48000);
   let peak=0;for(let i=44;i+4<=wav.length;i+=4)peak=Math.max(peak,Math.abs(wav.readFloatLE(i)));assert.ok(peak>0.001&&peak<=2,`WAV peak ${peak}`);assert.equal((await snapshot()).notes,3);assert.equal((await snapshot()).dirty,true);
