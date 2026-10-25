@@ -484,23 +484,17 @@ impl DeviceTrait for Device {
             // Process play/pause commands from any thread until Stream is dropped.
             // Dropping Stream closes command_tx, which terminates this loop.
             while let Some(cmd) = command_rx.next().await {
-                match cmd {
-                    Command::Play => {
-                        if audio_context.resume().is_err() {
-                            error_callback(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
-                                "Failed to resume audio context",
-                            ));
-                        }
-                    }
-                    Command::Pause => {
-                        if audio_context.suspend().is_err() {
-                            error_callback(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
-                                "Failed to suspend audio context",
-                            ));
-                        }
-                    }
+                // Lemon Studio: the promise is awaited, so a context closed while it resumes or suspends (the
+                // stream dropped meanwhile) rejects it handled rather than as an unhandled page error.
+                let (pending, what) = match cmd {
+                    Command::Play => (audio_context.resume(), "Failed to resume audio context"),
+                    Command::Pause => (audio_context.suspend(), "Failed to suspend audio context"),
+                };
+                match pending {
+                    Ok(promise) => wasm_bindgen_futures::spawn_local(async move {
+                        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                    }),
+                    Err(_) => error_callback(Error::with_message(ErrorKind::DeviceNotAvailable, what)),
                 }
             }
 
