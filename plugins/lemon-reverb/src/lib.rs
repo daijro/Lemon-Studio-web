@@ -133,6 +133,7 @@ impl ClapPlugin for LemonReverb {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Reverb, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonReverb {
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioRevrb";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Reverb];
