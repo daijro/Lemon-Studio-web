@@ -332,14 +332,15 @@ records! {
     SlotPlugin { name, state }
     MixerTrack {
         index, name, color, enabled, slots, routes, send_levels, volume, pan, stereo_separation, polarity, swap,
-        slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon;
-        // The file's track block it came from.
-        origin
+        slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon, rec_source, monitor;
+        // The file's track block it came from, and this person's audio device input, output and arming.
+        origin, audio_in, audio_out, armed
     }
     Clip { position, length, track, source, muted, window, raw }
     PlaylistTrack { number, name, color, enabled, grouped, collapsed, locked }
     AutoPoint { beat, value, tension, mode, flag }
-    Automation { channel, targets, points, header, tail }
+    Automation { channel, targets, points, header, tail, lfo }
+    clip_lfo::ClipLfo { switch, amount, mode, speed, tension, skew, pulse_width, phase, flags, envelope }
     Group { name, members }
     Rack { locked, groups, unsorted_at, loop_mode, loop_type, loop_len }
 }
