@@ -1320,7 +1320,7 @@ pub struct App {
     pub(crate) zipping: Option<crate::zipped::Zipping>,
     /// While a project loads: when the plugin hosts stop for this tick (`host_plugins`), and whether one stopped with
     /// instances left to start.
-    host_deadline: Option<std::time::Instant>,
+    host_deadline: Option<crate::time::Instant>,
     host_more: bool,
     /// An export is rendering (FILE > Export): its first file's name and progress (0..1); the same panel shows, input
     /// waits.
@@ -2352,7 +2352,7 @@ impl App {
 
     /// Starts the opened project's plugin channels and mixer effects until `deadline` (`project_plugins::sync_wrapped`
     /// and the other hosts stop after the instance that passes it): true when none is left to start.
-    fn host_plugins(&mut self, deadline: std::time::Instant) -> bool {
+    fn host_plugins(&mut self, deadline: crate::time::Instant) -> bool {
         self.host_deadline = Some(deadline);
         self.host_more = false;
         self.sync_effects();
@@ -2377,7 +2377,7 @@ impl App {
 
     /// Whether the plugin hosts' time this tick is over (`host_plugins`): the host that asks stops and goes on next tick.
     pub(crate) fn past_deadline(&mut self) -> bool {
-        let past = self.host_deadline.is_some_and(|d| std::time::Instant::now() >= d);
+        let past = self.host_deadline.is_some_and(|d| crate::time::Instant::now() >= d);
         self.host_more |= past;
         past
     }
