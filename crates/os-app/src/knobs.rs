@@ -50,7 +50,7 @@ pub enum KnobId {
 /// The controls of an automation clip's LFO, each over its stored range: switch (off, on), mode (multiply, add),
 /// amount 0..128, speed 0..65536, tension, skew and pulse width -128..128 (Lemon Studio's ranges for the knobs; the
 /// page gives the stored values' meaning).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum LfoKnob {
     On,
     Mode,
