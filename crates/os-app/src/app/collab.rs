@@ -230,9 +230,12 @@ fn keep_local(old: &Project, new: &mut Project) {
             (c.rack.origin, c.rack.locked, c.rack.zipped, c.rack.group) = (o.origin, o.locked, o.zipped, o.group);
         }
     }
-    // A mixer track's file block, by its number.
+    // A mixer track's file block and audio device input, output and arming, by its number (a new track's when this
+    // person does not have it).
     for t in &mut new.mixer {
-        t.origin = old.mixer.iter().find(|o| o.index == t.index).and_then(|o| o.origin);
+        let fresh = os_model::MixerTrack::new(t.index);
+        let o = old.mixer.iter().find(|o| o.index == t.index).unwrap_or(&fresh);
+        (t.origin, t.audio_in, t.audio_out, t.armed) = (o.origin, o.audio_in, o.audio_out, o.armed);
     }
     for p in &mut new.patterns {
         if let Some(o) = old.patterns.iter().find(|o| o.number == p.number && doc::pattern_value(o) == doc::pattern_value(p)) {
