@@ -212,11 +212,11 @@ impl Tap {
     /// One stream's block (interleaved, `w` channels: its first pair is taken) for device block `block`, taken `at`.
     /// The streams of one device block (playback and live notes) are summed, as the device hears them; a new device
     /// block comes after the last.
-    fn push(&mut self, stereo: &[f32], w: usize, block: u64, at: Instant, rate: u32) {
+    fn push(&mut self, stereo: &[f32], w: usize, block: u64, at: Option<Instant>, rate: u32) {
         let n = (stereo.len() / w) as u64;
         let same = block != 0 && block == self.block && n == self.frames;
         if !same {
-            (self.block, self.start, self.frames, self.at, self.rate) = (block, self.total, n, Some(at), rate);
+            (self.block, self.start, self.frames, self.at, self.rate) = (block, self.total, n, at, rate);
             self.total += n;
         }
         for (i, f) in stereo.chunks_exact(w).enumerate() {
@@ -2038,7 +2038,13 @@ impl Renderer {
         self.render_block(stereo);
         if self.tap && !held {
             if let Ok(mut t) = self.shared.tap.try_lock() {
-                t.push(stereo, self.queue.w, crate::device::blocks(), Instant::now(), self.shared.sample_rate.load(Ordering::Relaxed));
+                // Browser: the AudioWorklet's scope has no clock (web_time panics there): the block counts as heard at
+                // once.
+                #[cfg(target_arch = "wasm32")]
+                let at = None;
+                #[cfg(not(target_arch = "wasm32"))]
+                let at = Some(Instant::now());
+                t.push(stereo, self.queue.w, crate::device::blocks(), at, self.shared.sample_rate.load(Ordering::Relaxed));
             }
         }
     }
@@ -2072,7 +2078,9 @@ impl Renderer {
             }
         }
         // Where the block starts (the playback's position moves from here to its end while the device plays it).
+        #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
         let from = self.queue.heard();
+        #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
         let read = self.queue.read.load(Ordering::Relaxed) / w as u64;
         let got = self.queue.pop(stereo);
         let ended = self.queue.ended.load(Ordering::Acquire);
@@ -2096,6 +2104,8 @@ impl Renderer {
             if let Some((frame, tick)) = heard {
                 self.shared.position.store(frame, Ordering::Relaxed);
                 self.shared.tick.store(tick.to_bits(), Ordering::Relaxed);
+                // Browser: no clock in the AudioWorklet's scope (above), so no pace: the position moves a block at a time.
+                #[cfg(not(target_arch = "wasm32"))]
                 if let Ok(mut p) = self.shared.pace.try_lock() {
                     let rate = self.shared.sample_rate.load(Ordering::Relaxed);
                     *p = Some(Pace { from: from.unwrap_or((frame, tick)), to: (frame, tick), read: (read, read + (got / w) as u64), frames: (got / w) as u64, at: Instant::now(), rate });
@@ -2539,18 +2549,18 @@ mod tests {
     fn the_tap_is_heard_through_the_block() {
         let mut t = Tap::default();
         let t0 = Instant::now();
-        t.push(&[0.5; 2 * 4800], 2, 1, t0, 48000);
+        t.push(&[0.5; 2 * 4800], 2, 1, Some(t0), 48000);
         assert_eq!((t.total, t.heard(t0)), (4800, 0), "taken, not heard yet");
         assert_eq!(t.heard(t0 + Duration::from_millis(50)), 2400, "half way through 100 ms");
         assert_eq!(t.heard(t0 + Duration::from_secs(1)), 4800, "not past its end");
         // Live notes in the same device block: summed, not after it.
-        t.push(&[0.25; 2 * 4800], 2, 1, t0, 48000);
+        t.push(&[0.25; 2 * 4800], 2, 1, Some(t0), 48000);
         assert_eq!((t.total, t.l[10], t.r[4799]), (4800, 0.75, 0.75));
-        t.push(&[0.0; 2 * 4800], 2, 2, t0 + Duration::from_millis(100), 48000);
+        t.push(&[0.0; 2 * 4800], 2, 2, Some(t0 + Duration::from_millis(100)), 48000);
         assert_eq!((t.total, t.start, t.heard(t0 + Duration::from_millis(125))), (9600, 4800, 6000));
         // Without a rate (no stream opened yet), everything written is heard.
         let mut u = Tap::default();
-        u.push(&[0.0; 8], 2, 0, t0, 0);
+        u.push(&[0.0; 8], 2, 0, Some(t0), 0);
         assert_eq!(u.heard(t0), 4);
     }
 
