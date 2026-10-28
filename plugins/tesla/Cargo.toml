@@ -14,7 +14,7 @@ doctest = false
 linked = []
 
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false }
 os-dsp.workspace = true
 os-engine.workspace = true
 os-hostlink.workspace = true
@@ -33,3 +33,6 @@ rfd = "0.15"
 
 [dev-dependencies]
 tiny-skia = "0.11"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
