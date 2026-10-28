@@ -194,6 +194,7 @@ impl Kind for PhaserKind {
     const CLAP_DESCRIPTION: &'static str = "Lemon Studio's phaser";
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Phaser, ClapFeature::Stereo];
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioPhasr";
+    #[cfg(not(target_arch = "wasm32"))]
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Modulation];
 }
 

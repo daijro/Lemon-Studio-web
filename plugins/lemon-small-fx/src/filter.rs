@@ -183,6 +183,7 @@ impl Kind for FilterKind {
     const CLAP_DESCRIPTION: &'static str = "Lemon Studio's filter";
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Filter, ClapFeature::Stereo];
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioFiltr";
+    #[cfg(not(target_arch = "wasm32"))]
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Filter];
 }
 

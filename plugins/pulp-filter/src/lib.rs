@@ -257,6 +257,7 @@ impl ClapPlugin for PulpFilter {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Filter, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for PulpFilter {
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioPulpF";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Filter];
