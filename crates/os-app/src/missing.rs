@@ -95,7 +95,14 @@ pub fn missing_samples(s: &State) -> Vec<(usize, String)> {
         .iter()
         .enumerate()
         .filter_map(|(row, ch)| Some((row, ch.sample_path.clone().filter(|p| !p.trim().is_empty())?)))
-        .filter(|(_, p)| !Path::new(&crate::plugins::resolve_sample(p)).is_file())
+        .filter(|(_, p)| {
+            let path = crate::plugins::resolve_sample(p);
+            // Browser: the files imported with the project (`os_paths::fs`).
+            #[cfg(target_arch = "wasm32")]
+            return !os_paths::fs::exists(&path);
+            #[cfg(not(target_arch = "wasm32"))]
+            !Path::new(&path).is_file()
+        })
         .collect()
 }
 
@@ -141,12 +148,14 @@ fn missing_box(samples: &[String], plugins: &[String]) -> Msg {
         parts.push(format!("\nPlugins ({}): ", count(plugins)));
         parts.push(listed(plugins.to_vec()));
     }
-    if !samples.is_empty() {
+    // Browser: no folders to look in (the project's files are imported with it).
+    let find = !samples.is_empty() && !cfg!(target_arch = "wasm32");
+    if find {
         parts.push("\n\nFind samples... looks for the missing samples by name in a folder you choose and its subfolders.".into());
     }
     let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
     let text = spans(&parts);
-    if samples.is_empty() {
+    if !find {
         return Msg::new(Kind::Warning, "Missing project files", text, &[Answer::Ok], Then::MissingFiles);
     }
     Msg::new(Kind::Warning, "Missing project files", text, &[Answer::Yes, Answer::Ok], Then::MissingFiles).labelled(&["Find samples...", "OK"])
