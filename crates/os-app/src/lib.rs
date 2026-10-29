@@ -1788,7 +1788,7 @@ pub fn run() {
     #[cfg(not(target_arch = "wasm32"))]
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(target_arch = "wasm32")]
-    let args: Vec<String> = Vec::new();
+    let mut args: Vec<String> = Vec::new();
     // A plugin scanner process (spec: ui/plugin-manager.md §4): loads one file, prints its plugins, ends.
     if args.first().map(String::as_str) == Some(plugin_scan::ARG) {
         plugin_scan::child_main(&args[1..]);
