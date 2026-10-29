@@ -230,21 +230,39 @@ fn keep_local(old: &Project, new: &mut Project) {
             (c.rack.origin, c.rack.locked, c.rack.zipped, c.rack.group) = (o.origin, o.locked, o.zipped, o.group);
         }
     }
+    // This app's ids (`os_model::Id`, never shared): a channel's and a mixer slot's by place, as the hosted instances
+    // stay by rack row and slot (`adopt_song`), so `follow_ids` leaves them there; the others' by number, a clip's by
+    // its place in the arrangement. What has none gets a new one at the next settle (`control::ids`).
+    for (row, c) in new.channels.iter_mut().enumerate() {
+        c.id = old.channels.get(row).map_or(os_model::Id::NONE, |o| o.id);
+    }
     // A mixer track's file block and audio device input, output and arming, by its number (a new track's when this
     // person does not have it).
     for t in &mut new.mixer {
         let fresh = os_model::MixerTrack::new(t.index);
         let o = old.mixer.iter().find(|o| o.index == t.index).unwrap_or(&fresh);
-        (t.origin, t.audio_in, t.audio_out, t.armed) = (o.origin, o.audio_in, o.audio_out, o.armed);
+        (t.origin, t.audio_in, t.audio_out, t.armed, t.id) = (o.origin, o.audio_in, o.audio_out, o.armed, o.id);
+        for (s, os) in t.slots.iter_mut().zip(&o.slots) {
+            if let (Some(s), Some(os)) = (s, os) {
+                s.id = os.id;
+            }
+        }
     }
     for p in &mut new.patterns {
         if let Some(o) = old.patterns.iter().find(|o| o.number == p.number && doc::pattern_value(o) == doc::pattern_value(p)) {
             p.clone_from(o);
+        } else if let Some(o) = old.patterns.iter().find(|o| o.number == p.number) {
+            p.id = o.id;
         }
     }
     for a in &mut new.arrangements {
         if let Some(o) = old.arrangements.iter().find(|o| o.number == a.number && doc::arrangement_value(o) == doc::arrangement_value(a)) {
             a.clone_from(o);
+        } else if let Some(o) = old.arrangements.iter().find(|o| o.number == a.number) {
+            a.id = o.id;
+            for c in &mut a.clips {
+                c.id = o.clips.iter().find(|x| (x.track, x.position) == (c.track, c.position)).map_or(os_model::Id::NONE, |x| x.id);
+            }
         }
     }
 }
