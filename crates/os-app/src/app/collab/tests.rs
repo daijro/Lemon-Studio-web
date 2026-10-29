@@ -60,6 +60,11 @@ fn adopting_keeps_views_and_selections_and_is_no_undo_step() {
     b.state.piano.scroll_x = 300.0;
     let work = Some(os_model::WorkTime { started: 1.0, spent: 2.0 });
     b.state.project.work_time = work;
+    // This app's ids, which the song does not carry (the edited pattern's too).
+    b.state.control.settle(&mut b.state.project);
+    let ids = |p: &os_model::Project| (p.channels.iter().map(|c| c.id.0).collect::<Vec<_>>(), p.patterns[0].id.0, p.mixer[1].id.0);
+    let before = ids(&b.state.project);
+    assert!(before.0.iter().chain([&before.1, &before.2]).all(|&i| i != 0));
     let song = edited(|a| {
         // A note in front of the selected one, another tempo and automatic crossfades.
         a.state.project.patterns[0].notes = vec![note(96, 60), note(0, 64)];
@@ -73,6 +78,7 @@ fn adopting_keeps_views_and_selections_and_is_no_undo_step() {
     let sel = b.state.piano.selection(1, Some(0));
     assert_eq!(sel.iter().map(|&i| piano::notes(&b.state)[i].position).collect::<Vec<_>>(), [96], "the selection follows its note");
     assert!(!piano::undo(&mut b.state), "no undo step");
+    assert_eq!(ids(&b.state.project), before, "the ids stay with their things");
 }
 
 #[test]

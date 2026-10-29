@@ -324,19 +324,21 @@ records! {
     ChannelSound { cutoff, resonance, filter_type, sampler_flags, declick, stretch, fx, loop_points, start_offset_bits }
     Channel {
         index, kind, name, plugin, plugin_state, color, enabled, volume, pan, pitch_cents, mixer_track, sample_path,
-        layer_children, envelopes, rack, misc, sound,
+        layer_children, envelopes, rack, misc, sound;
+        // This app's own (`os_model::Id`; `keep_local`).
+        id
     }
     Note { position, length, channel, key, fine_pitch, release, pan, velocity, mod_x, mod_y, flags, group, unk14, repeat }
     ControlPoint { position, kind, value }
     TimeMarker { position, kind, name, numerator, denominator, scale }
-    SlotPlugin { name, state }
+    SlotPlugin { name, state; id }
     MixerTrack {
         index, name, color, enabled, slots, routes, send_levels, volume, pan, stereo_separation, polarity, swap,
         slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon, rec_source, monitor;
-        // The file's track block it came from, and this person's audio device input, output and arming.
-        origin, audio_in, audio_out, armed
+        // The file's track block it came from, this person's audio device input, output and arming, and this app's id.
+        origin, audio_in, audio_out, armed, id
     }
-    Clip { position, length, track, source, muted, window, raw }
+    Clip { position, length, track, source, muted, window, raw; id }
     PlaylistTrack { number, name, color, enabled, grouped, collapsed, locked }
     AutoPoint { beat, value, tension, mode, flag }
     Automation { channel, targets, points, header, tail, lfo }
@@ -458,6 +460,7 @@ fn pattern(p: &Pattern) -> Value {
 fn unpattern(v: &Value) -> Option<Pattern> {
     let get = |k: &str| v.get(k);
     Some(Pattern {
+        id: os_model::Id::NONE,
         number: Js::read(get("number")?)?,
         name: Js::read(get("name")?)?,
         color: Js::read(get("color")?)?,
@@ -505,6 +508,7 @@ fn unarrangement(v: &Value) -> Option<Arrangement> {
         None => listed,
     };
     Some(Arrangement {
+        id: os_model::Id::NONE,
         number: Js::read(get("number")?)?,
         name: Js::read(get("name")?)?,
         clips: Js::read(get("clips")?)?,
