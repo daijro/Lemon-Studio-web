@@ -8,7 +8,10 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 /// A count an instance raises when it has work for the UI thread (callbacks it asked for, parameter events for the
 /// app, a flush, a restart, a new rate). The UI locks an instance only when its count moved since it last looked (or

@@ -94,9 +94,14 @@ pub fn latin1(s: &str) -> Vec<u8> {
 /// start, Lemon Studio from the program's first formula: only differences and fractions of it mean anything), and
 /// `Date`, the whole days since 1899-12-30 (UTC; the original's has no time of day in it).
 pub fn clock_now() -> (f64, f64) {
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    let ms = START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0;
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
+    // Browser: std's clock panics there; web_time reads the page's.
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time;
+    #[cfg(target_arch = "wasm32")]
+    use web_time as time;
+    static START: std::sync::OnceLock<time::Instant> = std::sync::OnceLock::new();
+    let ms = START.get_or_init(time::Instant::now).elapsed().as_secs_f64() * 1000.0;
+    let secs = time::SystemTime::now().duration_since(time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64());
     (ms, (secs / 86400.0).floor() + 25569.0)
 }
 

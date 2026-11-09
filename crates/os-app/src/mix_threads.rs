@@ -15,6 +15,11 @@ use std::sync::Arc;
 /// one thread).
 pub fn start() {
     apply();
+    // Browser: std's threads cannot start there (a pool would have no workers to hand jobs to); the engines render on
+    // their own worker, as before.
+    if cfg!(target_arch = "wasm32") {
+        return;
+    }
     let workers = match std::env::var("OS_MIX_THREADS").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
         Some(n) => n,
         None => parallel::default_workers(physical_cores()),

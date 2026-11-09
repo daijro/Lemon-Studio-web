@@ -20,7 +20,10 @@
 // spec: audio/multicore.md
 
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
 
 use super::{instrument_job, mix_track, pdc, render_voice, render_voice_into, InstClip, InstCx, InstLane, InstTuning, Lane, MixTrack, Voice};
 use crate::parallel::{Graph, Pool};
