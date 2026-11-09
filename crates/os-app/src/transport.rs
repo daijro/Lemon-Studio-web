@@ -2763,9 +2763,7 @@ impl Renderer {
         if want != self.epoch && !follow && self.gain == 0.0 && !self.take_epoch(want, stereo.len()) {
             stereo.fill(0.0);
             self.peak = 0.0;
-            if let Some(t) = &self.wake {
-                t.unpark();
-            }
+            if let Some(t) = self.wake.as_ref().and_then(|t|t.get()) { t.unpark(); }
             return false;
         }
         let switching = want != self.epoch;
