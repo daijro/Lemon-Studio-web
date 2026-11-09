@@ -16,7 +16,7 @@
 // spec: ui/animations.md
 
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 /// General ▸ Display ▸ Animations, low to high (spec: ui/animations.md §3.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

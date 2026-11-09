@@ -407,7 +407,7 @@ impl App {
             let Some(look) = h.due(ui.lists.get(&key).map_or(crate::plugins::Look::never(), |l| l.seen)) else { continue };
             // A plugin's parameters can take a few ms to read (`lock_for_tick`).
             let Some(mut p) = crate::plugins::lock_for_tick(&h.plugin, h.meter.as_deref()) else { continue };
-            let t0 = std::time::Instant::now();
+            let t0 = crate::time::Instant::now();
             let weak = Arc::downgrade(&h.plugin);
             let count = p.param_count();
             let stale = ui.lists.get(&key).is_none_or(|l| l.params.len() != count || !Weak::ptr_eq(&l.plugin, &weak));

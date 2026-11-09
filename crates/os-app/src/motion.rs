@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use crate::time::{Duration, Instant};
 
 use os_model::Clip;
 use os_ui::{Canvas, Layer, Rect, Sprite};
