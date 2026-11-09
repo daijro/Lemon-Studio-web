@@ -163,6 +163,7 @@ impl ClapPlugin for LemonFormulaController {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Utility, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonFormulaController {
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioFormC";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];

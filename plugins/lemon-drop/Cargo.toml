@@ -14,7 +14,7 @@ doctest = false
 linked = []
 
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false }
 os-hostlink.workspace = true
 os-plugkit = { path = "../../crates/os-plugkit" }
 os-ui = { path = "../../crates/os-ui" }
@@ -35,3 +35,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "CALayer"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "CFData"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "objc2", "CGDataProvider", "CGEvent", "CGEventTypes", "CGImage", "CGRemoteOperation"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default-features = false, features = ["vst3"] }

@@ -441,6 +441,7 @@ impl ClapPlugin for SmithPlugin {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument, ClapFeature::Synthesizer, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for SmithPlugin {
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioSmith";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Synth];

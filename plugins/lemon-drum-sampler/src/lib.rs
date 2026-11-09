@@ -241,6 +241,7 @@ impl ClapPlugin for LemonDrumSampler {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument, ClapFeature::Drum, ClapFeature::Sampler, ClapFeature::Stereo];
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Vst3Plugin for LemonDrumSampler {
     const VST3_CLASS_ID: [u8; 16] = *b"LemonStudioDrums";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Instrument, Vst3SubCategory::Drum, Vst3SubCategory::Sampler];
