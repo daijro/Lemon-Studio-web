@@ -409,7 +409,7 @@ impl Instrument for MidiOutInstrument {
 
 /// The settings the channel window shows as knobs (spec §6.3), each over its values: Channel 1..16, Port 0..255, Patch
 /// none and 1..128, the two Bank boxes none and 0..127, and the two checks.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum MoKnob {
     Channel,
     Port,
