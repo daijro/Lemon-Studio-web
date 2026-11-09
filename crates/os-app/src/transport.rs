@@ -2811,6 +2811,9 @@ impl Renderer {
             }
         }
         self.peak = peak;
+        // Browser: no clock in the AudioWorklet's scope (web_time panics there), so no time of the last sound: a
+        // dropout is not told apart as heard (`sound_lately`).
+        #[cfg(not(target_arch = "wasm32"))]
         if peak > SILENT {
             self.shared.sound_at.store(now_ms(), Ordering::Relaxed);
         }
