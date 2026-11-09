@@ -314,8 +314,9 @@ records! {
     LayerSettings { flags, crossfade }
     ChannelMisc {
         levels, max_poly, slide, porta, mono, gate, shift, swing, full_porta, tracking, cut, cut_by, arp, echo, root,
-        main_pitch, add_key, fine, key_range, layer, pitch_range,
+        main_pitch, add_key, fine, key_range, layer, pitch_range, truncate_swing, cpu,
     }
+    PluginCpu { threaded, smart_disable }
     SampleFx {
         flags, boost, fade_out, fade_in, stereo_delay, pogo, feedback, cutoff, resonance, ring_mix, ring_freq, reverb,
         reverb_type, ping_pong, remove_dc, normalize, polarity, crossfade, trim, start_bits, length_bits,
@@ -330,16 +331,20 @@ records! {
     }
     Note { position, length, channel, key, fine_pitch, release, pan, velocity, mod_x, mod_y, flags, group, unk14, repeat }
     ControlPoint { position, kind, value }
-    TimeMarker { position, kind, name, numerator, denominator, scale }
+    TimeMarker { position, kind, name, numerator, denominator, scale, root, flag, scale_index }
     SlotPlugin { name, state; id }
     MixerTrack {
         index, name, color, enabled, slots, routes, send_levels, volume, pan, stereo_separation, polarity, swap,
-        slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon, rec_source, monitor;
+        slots_enabled, slot_on, slot_mix, eq, latency_out, latency_in, icon, rec_source, monitor, separator, dock, threaded,
+        slot_cpu;
         // The file's track block it came from, this person's audio device input, output and arming, and this app's id.
         origin, audio_in, audio_out, armed, id
     }
     Clip { position, length, track, source, muted, window, raw; id }
-    PlaylistTrack { number, name, color, enabled, grouped, collapsed, locked }
+    PlaylistTrack { number, name, color, enabled, grouped, collapsed, locked, perf, clip_lock, link }
+    PerfSettings { motion, press, trigger_sync, queue, tolerant, position_sync }
+    TrackLink { kind, mixer, channel }
+    ControllerLink { bytes, formula }
     AutoPoint { beat, value, tension, mode, flag }
     Automation { channel, targets, points, header, tail, lfo }
     clip_lfo::ClipLfo { switch, amount, mode, speed, tension, skew, pulse_width, phase, flags, envelope }
@@ -550,6 +555,9 @@ pub(crate) fn encode(p: &Project, tempo: f64, rack: &Rack) -> Value {
     m.insert("panning_law".into(), p.panning_law.js());
     m.insert("fast_declick".into(), p.fast_declick.js());
     m.insert("auto_crossfades".into(), p.auto_crossfades.js());
+    m.insert("performance".into(), p.performance.js());
+    m.insert("controller_links".into(), p.controller_links.js());
+    m.insert("pdc_off".into(), p.pdc_off.js());
     m.insert("main_volume".into(), p.main_volume.js());
     m.insert("main_pitch".into(), p.main_pitch.js());
     m.insert("rack".into(), rack.js());
@@ -577,6 +585,9 @@ pub(crate) fn decode(v: &Value) -> Option<Song> {
         panning_law: Js::read(get("panning_law")?)?,
         fast_declick: Js::read(get("fast_declick")?)?,
         auto_crossfades: Js::read(get("auto_crossfades")?)?,
+        performance: Js::read(get("performance")?)?,
+        controller_links: Js::read(get("controller_links")?)?,
+        pdc_off: Js::read(get("pdc_off")?)?,
         main_volume: Js::read(get("main_volume")?)?,
         main_pitch: Js::read(get("main_pitch")?)?,
         ..Project::default()
