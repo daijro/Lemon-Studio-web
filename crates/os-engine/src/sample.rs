@@ -125,7 +125,7 @@ pub fn load_bytes(path: &Path, bytes: Vec<u8>) -> Result<Sample, SampleError> {
         return Ok(s);
     }
     if let Some(audio) = wavpack_audio_first(&bytes) {
-        return decode(audio.to_vec(), Some("wv")).map_err(decode_err);
+        return decode(audio.to_vec(), Some("wv"), MAX_FRAMES).map_err(decode_err);
     }
     let ext = path.extension().and_then(|e| e.to_str());
     decode(bytes, ext, MAX_FRAMES).map_err(decode_err)
