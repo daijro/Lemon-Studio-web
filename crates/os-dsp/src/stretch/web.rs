@@ -12,6 +12,7 @@ unsafe extern "C" {
     fn signalsmith_stretch_input_latency(p: *mut c_void) -> usize;
     fn signalsmith_stretch_output_latency(p: *mut c_void) -> usize;
     fn signalsmith_stretch_set_transpose_factor(p: *mut c_void, factor: f32, limit: f32);
+    fn signalsmith_stretch_set_formant_factor(p: *mut c_void, factor: f32, compensate_pitch: i32);
     fn signalsmith_stretch_seek(p: *mut c_void, input: *const f32, frames: usize, speed: f64);
     fn signalsmith_stretch_process(
         p: *mut c_void,
@@ -88,6 +89,9 @@ impl Stretch {
         unsafe {
             signalsmith_stretch_set_transpose_factor(self.inner, factor, limit.unwrap_or(0.0))
         }
+    }
+    pub fn set_formant_factor(&mut self, factor: f32, compensate_pitch: bool) {
+        unsafe { signalsmith_stretch_set_formant_factor(self.inner, factor, i32::from(compensate_pitch)) }
     }
     pub fn seek(&mut self, input: &[f32], speed: f64) {
         assert_eq!(input.len() % self.channels, 0);
